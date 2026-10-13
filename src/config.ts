@@ -49,7 +49,12 @@ export const configSchema = z.object({
     greenhouse: companyList,
     lever: companyList,
     ashby: companyList,
-    remotive: z.object({ enabled: z.boolean() }),
+    remotive: z.object({
+      enabled: z.boolean(),
+      category: z.string().min(1),
+      search: z.string().optional(),
+      min_interval_hours: z.number().nonnegative(),
+    }),
   }),
   models: z.object({ tailoring: z.string().min(1) }),
   render: z.object({

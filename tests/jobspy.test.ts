@@ -61,8 +61,10 @@ describe("collectJobspy", () => {
   it("stores valid postings, drops invalid ones and maps fields", async () => {
     const { db, summary } = run("ok");
     const s = await summary;
-    // 2 searches × 4 sites × 2 jobs
-    expect(s).toMatchObject({ created: 16, invalid: 4, blocked: [], errors: [] });
+    // 2 searches × 4 sites × 2 jobs; job #1 of every site links to the same Greenhouse URL → one Job.
+    expect(s).toMatchObject({ invalid: 4, blocked: [], errors: [] });
+    expect(s.created + s.linked).toBe(16);
+    expect(s.linked).toBeGreaterThanOrEqual(7);
     const p = db.select().from(postings).all().find((r) => r.externalId?.startsWith("linkedin-") && r.externalId.endsWith("-1"))!;
     expect(p).toMatchObject({ source: "linkedin", applyUrl: "https://boards.greenhouse.io/acme/jobs/1", company: "Acme" });
     expect(db.select().from(jobs).all().every((j) => j.status === "new")).toBe(true);
@@ -72,7 +74,7 @@ describe("collectJobspy", () => {
     const db = openDb(":memory:");
     await run("ok", {}, db).summary;
     const second = await run("ok", {}, db).summary;
-    expect(second).toMatchObject({ created: 0, seenAgain: 16 });
+    expect(second).toMatchObject({ created: 0, linked: 0, seenAgain: 16 });
   });
 
   it("blocks a site until midnight, keeps the other sites' results and skips it on the next run", async () => {

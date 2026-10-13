@@ -54,6 +54,8 @@ export const postings = sqliteTable(
     externalId: text("external_id"),
     url: text("url"),
     applyUrl: text("apply_url"),
+    /** Canonical form of apply_url (or url), used by the dedupe to recognize the same opening across sources. */
+    urlKey: text("url_key"),
     company: text("company").notNull(),
     title: text("title").notNull(),
     location: text("location"),
@@ -70,6 +72,7 @@ export const postings = sqliteTable(
     check("postings_source_check", sql`${t.source} in (${inList(SOURCES)})`),
     uniqueIndex("postings_source_external_idx").on(t.source, t.externalId),
     index("postings_job_idx").on(t.jobId),
+    index("postings_url_key_idx").on(t.urlKey),
   ],
 );
 

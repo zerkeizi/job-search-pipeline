@@ -146,6 +146,8 @@ export interface CollectOptions {
 
 export interface CollectSummary {
   created: number;
+  linked: number;
+  flagged: number;
   seenAgain: number;
   invalid: number;
   blocked: JobspySite[];
@@ -159,7 +161,7 @@ export async function collectJobspy(db: Db, config: Config, opts: CollectOptions
   const now = opts.now ?? (() => new Date());
   const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const log = (line: string) => logCollector(line, now(), opts.logDir);
-  const summary: CollectSummary = { created: 0, seenAgain: 0, invalid: 0, blocked: [], skipped: [], errors: [] };
+  const summary: CollectSummary = { created: 0, linked: 0, flagged: 0, seenAgain: 0, invalid: 0, blocked: [], skipped: [], errors: [] };
 
   const wanted = cfg.sites.filter((s) => !opts.sites || opts.sites.includes(s));
   let active = wanted.filter((s) => {
@@ -204,9 +206,11 @@ export async function collectJobspy(db: Db, config: Config, opts: CollectOptions
       if (posting) postingsIn.push(posting);
       else invalid++;
     }
-    const stored = ingest(db, postingsIn, now());
+    const stored = ingest(db, postingsIn, config.dedupe, now());
     summary.created += stored.created;
     summary.seenAgain += stored.seenAgain;
+    summary.linked += stored.linked;
+    summary.flagged += stored.flagged;
     summary.invalid += invalid;
     res.failed.forEach((s) => failed.add(s));
     if (res.failed.length) summary.errors.push(`"${search.term}": failed on ${res.failed.join(", ")}`);
@@ -216,7 +220,7 @@ export async function collectJobspy(db: Db, config: Config, opts: CollectOptions
     }
     log(
       `jobspy term="${search.term}" sites=${active.join(",")} window=${hours}h got=${res.records.length} ` +
-        `new=${stored.created} seen=${stored.seenAgain} invalid=${invalid}` +
+        `new=${stored.created} linked=${stored.linked} flagged=${stored.flagged} seen=${stored.seenAgain} invalid=${invalid}` +
         `${res.blocked.length ? ` BLOCKED=${res.blocked.join(",")}` : ""}` +
         `${res.failed.length ? ` FAILED=${res.failed.join(",")}` : ""} ${seconds}s`,
     );

@@ -173,6 +173,10 @@ Não existe `approved`, `interview`, `rejected` nem `offer`.
 
 Sem LLM: regras determinísticas, em ordem; a primeira que bater decide ([ADR 0001](docs/adr/0001-postings-and-jobs-with-deterministic-dedupe.md), [ADR 0003](docs/adr/0003-uncertain-duplicates-go-to-analysis.md)).
 
+**Implementação:** `src/dedupe.ts` (URL canônica, similaridade de título e de descrição) e `src/ingest.ts` (aplica as regras ao gravar). Cada Posting guarda `url_key`, a forma canônica do `apply_url` (ou `url`): Greenhouse (`boards`/`job-boards`/`boards-api`, `gh_jid`), Lever e Ashby (sem `/apply`/`/application`) e Gupy (o token base64 da URL é decodificado para o id da vaga, que não muda conforme a origem do link) viram a mesma chave.
+
+**Coletores HTTP:** `src/collectors/http.ts` faz GET sem credenciais nem cookies, com `limits.request_delay_seconds` entre requisições e sem retries; 429/403 ou página de captcha param aquela fonte até a meia-noite.
+
 **Normalização:**
 - empresa: minúsculas, sem acento, sem sufixo societário (`Ltda`, `S.A.`, `Inc`, `LLC`…) e sem pontuação — `"Acme Tecnologia Ltda."` → `acme tecnologia`;
 - título: minúsculas, sem acento, sem emoji, sem parênteses de modalidade (`(Remote)`), abreviações expandidas (`Sr.` → `senior`), `node.js` → `node`;
@@ -243,9 +247,9 @@ Testes do sidecar: `pytest` com respostas do JobSpy mockadas (sem rede). Testes 
 Cada coletor implementa `collect(config): Promise<PostingIn[]>` e é independente; falha de um não derruba os outros. A mesma regra de janela (desde a última coleta bem-sucedida + margem, com limite) vale para os coletores que aceitam filtro por data.
 
 - **JobSpy (sidecar)** — LinkedIn, Indeed, Glassdoor e Google Jobs, deslogado.
-- **Gupy** — API JSON pública do portal de vagas (sem login).
-- **Greenhouse / Lever / Ashby** — APIs públicas de job board por empresa; lista de empresas-alvo em `config.yaml`.
-- **Remotive** e similares com API/feed público.
+- **Gupy** — o endpoint JSON antigo do portal não existe mais (404). A página pública de busca (`portal.gupy.io/job-search/term=<q>`, deslogada) traz as vagas — com descrição completa — no JSON `__NEXT_DATA__`; o coletor lê a primeira página (12 vagas) por termo. Se o layout mudar, o coletor falha com erro claro.
+- **Greenhouse / Lever / Ashby** — APIs públicas de job board por empresa (`boards-api.greenhouse.io/v1/boards/<board>/jobs?content=true`, `api.lever.co/v0/postings/<empresa>?mode=json`, `api.ashbyhq.com/posting-api/job-board/<board>`); lista de empresas-alvo em `config.yaml`. Uma empresa com erro (ex.: nome errado) não para as outras.
+- **Remotive** — `remotive.com/api/remote-jobs?category=software-development`. Termos deles: no máximo ~4 requisições por dia (`sources.remotive.min_interval_hours: 6`), vagas com 24h de atraso, e sempre manter o link para a vaga na Remotive (é o `url`/`apply_url` do Posting).
 - **Manual** — `jobpipe add <arquivo.txt> [--url <link>]`: texto da vaga colado num `.txt`; `--url` só preenche `url`/`apply_url`. Vaga manual **pula o pré-filtro e o limiar de score** (vai para tailoring mesmo com score baixo), mas passa pelo scoring para gerar matches e Gaps.
 
 ### 2. Pré-filtro (sem LLM, custo zero)
@@ -412,7 +416,7 @@ sources:
   greenhouse: { enabled: true, companies: [] }
   lever: { enabled: true, companies: [] }
   ashby: { enabled: true, companies: [] }
-  remotive: { enabled: true }
+  remotive: { enabled: true, category: software-development, min_interval_hours: 6 }
 models:
   tailoring: sonnet   # alias aceito por `claude --model`
 render:

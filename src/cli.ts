@@ -1,5 +1,6 @@
 import { Command } from "commander";
-import { collectJobspy, JOBSPY_SITES, type JobspySite } from "./collectors/jobspy.js";
+import { API_SOURCES, collectApiSources } from "./collectors/api.js";
+import { collectJobspy, JOBSPY_SITES } from "./collectors/jobspy.js";
 import { addManualJob } from "./collectors/manual.js";
 import { loadConfig } from "./config.js";
 import { loadBaseCv } from "./cv/schema.js";
@@ -80,26 +81,38 @@ program
 
 program
   .command("collect")
-  .description("collect jobs (LinkedIn, Indeed, Glassdoor, Google Jobs via the JobSpy sidecar)")
-  .option("--source <site>", `only this source (${JOBSPY_SITES.join(", ")})`)
+  .description("collect jobs: JobSpy sidecar (LinkedIn, Indeed, Glassdoor, Google) + public APIs (Gupy, Greenhouse, Lever, Ashby, Remotive)")
+  .option("--source <name>", `only this source (${[...JOBSPY_SITES, ...API_SOURCES].join(", ")})`)
   .option("--force", "ignore today's block on a source (use with care: rule 3)")
   .action(async (opts: { source?: string; force?: boolean }) => {
-    if (opts.source && !JOBSPY_SITES.includes(opts.source as JobspySite)) {
-      console.error(`unknown source ${opts.source}; available: ${JOBSPY_SITES.join(", ")}`);
+    const all: string[] = [...JOBSPY_SITES, ...API_SOURCES];
+    if (opts.source && !all.includes(opts.source)) {
+      console.error(`unknown source ${opts.source}; available: ${all.join(", ")}`);
       process.exitCode = 1;
       return;
     }
     const config = loadConfig();
-    if (!config.sources.jobspy.enabled) return console.log("jobspy is disabled in config.yaml");
-    const s = await collectJobspy(openDb(), config, {
-      sites: opts.source ? [opts.source as JobspySite] : undefined,
-      force: opts.force,
-    });
-    console.log(`jobspy: ${s.created} new, ${s.seenAgain} seen again, ${s.invalid} invalid dropped`);
-    if (s.skipped.length) console.log(`skipped (blocked until midnight): ${s.skipped.join(", ")}`);
-    if (s.blocked.length) console.log(`blocked now (until midnight): ${s.blocked.join(", ")}`);
-    for (const e of s.errors) console.log(`error: ${e}`);
-    if (s.errors.length) process.exitCode = 1;
+    const db = openDb();
+    const jobspySites = opts.source ? JOBSPY_SITES.filter((s) => s === opts.source) : [...JOBSPY_SITES];
+    if (config.sources.jobspy.enabled && jobspySites.length > 0) {
+      const s = await collectJobspy(db, config, { sites: jobspySites, force: opts.force });
+      console.log(`jobspy: ${s.created} new, ${s.linked} linked to existing jobs, ${s.flagged} possible duplicates, ${s.seenAgain} seen again, ${s.invalid} invalid dropped`);
+      if (s.skipped.length) console.log(`  skipped (blocked until midnight): ${s.skipped.join(", ")}`);
+      if (s.blocked.length) console.log(`  blocked now (until midnight): ${s.blocked.join(", ")}`);
+      for (const e of s.errors) console.log(`  error: ${e}`);
+      if (s.errors.length) process.exitCode = 1;
+    }
+    const apiSources = opts.source ? API_SOURCES.filter((s) => s === opts.source) : [...API_SOURCES];
+    for (const s of await collectApiSources(db, config, { sources: apiSources, force: opts.force })) {
+      if (s.status === "disabled" || s.status === "skipped") {
+        console.log(`${s.source}: ${s.status} (${s.detail})`);
+        continue;
+      }
+      const blocked = s.status === "blocked" ? ` — BLOCKED until midnight (${s.detail})` : "";
+      console.log(`${s.source}: ${s.created} new, ${s.linked} linked, ${s.flagged} possible duplicates, ${s.seenAgain} seen again${blocked}`);
+      for (const e of s.errors) console.log(`  error: ${e}`);
+      if (s.status === "error") process.exitCode = 1;
+    }
   });
 
 notYet("score", 5);

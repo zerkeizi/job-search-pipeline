@@ -26,10 +26,12 @@ sources:
     results_wanted: 30
     fetch_description: true   # one extra request per job on boards whose search results lack descriptions
   gupy: { enabled: true, queries: ["full stack", "node", "react"] }
+  # Board tokens, e.g. boards.greenhouse.io/<token>, jobs.lever.co/<company>, jobs.ashbyhq.com/<board>.
   greenhouse: { enabled: true, companies: [] }
   lever: { enabled: true, companies: [] }
   ashby: { enabled: true, companies: [] }
-  remotive: { enabled: true }
+  # Remotive asks for at most ~4 requests a day and a link back to their job URL.
+  remotive: { enabled: true, category: software-development, min_interval_hours: 6 }
 models:
   tailoring: sonnet   # alias accepted by `claude --model`; calls go through the Claude Code subscription
 render:
