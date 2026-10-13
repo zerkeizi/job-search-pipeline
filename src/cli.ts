@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { collectJobspy, JOBSPY_SITES, type JobspySite } from "./collectors/jobspy.js";
 import { addManualJob } from "./collectors/manual.js";
 import { loadConfig } from "./config.js";
 import { loadBaseCv } from "./cv/schema.js";
@@ -77,7 +78,30 @@ program
     await runGenerate(pendingJobIds(openDb(), config, opts.limit ?? config.limits.generate_per_run));
   });
 
-notYet("collect", 3);
+program
+  .command("collect")
+  .description("collect jobs (LinkedIn, Indeed, Glassdoor, Google Jobs via the JobSpy sidecar)")
+  .option("--source <site>", `only this source (${JOBSPY_SITES.join(", ")})`)
+  .option("--force", "ignore today's block on a source (use with care: rule 3)")
+  .action(async (opts: { source?: string; force?: boolean }) => {
+    if (opts.source && !JOBSPY_SITES.includes(opts.source as JobspySite)) {
+      console.error(`unknown source ${opts.source}; available: ${JOBSPY_SITES.join(", ")}`);
+      process.exitCode = 1;
+      return;
+    }
+    const config = loadConfig();
+    if (!config.sources.jobspy.enabled) return console.log("jobspy is disabled in config.yaml");
+    const s = await collectJobspy(openDb(), config, {
+      sites: opts.source ? [opts.source as JobspySite] : undefined,
+      force: opts.force,
+    });
+    console.log(`jobspy: ${s.created} new, ${s.seenAgain} seen again, ${s.invalid} invalid dropped`);
+    if (s.skipped.length) console.log(`skipped (blocked until midnight): ${s.skipped.join(", ")}`);
+    if (s.blocked.length) console.log(`blocked now (until midnight): ${s.blocked.join(", ")}`);
+    for (const e of s.errors) console.log(`error: ${e}`);
+    if (s.errors.length) process.exitCode = 1;
+  });
+
 notYet("score", 5);
 notYet("run", 5);
 notYet("review", 6);

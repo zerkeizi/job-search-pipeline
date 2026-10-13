@@ -24,7 +24,7 @@ sources:
     window_margin_hours: 12
     max_hours_old: 168
     results_wanted: 30
-    linkedin_fetch_description: true
+    fetch_description: true   # one extra request per job on boards whose search results lack descriptions
   gupy: { enabled: true, queries: ["full stack", "node", "react"] }
   greenhouse: { enabled: true, companies: [] }
   lever: { enabled: true, companies: [] }

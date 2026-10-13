@@ -1,0 +1,24 @@
+[project]
+name = "jobspy-sidecar"
+version = "0.1.0"
+description = "Thin JSON wrapper around python-jobspy for the job pipeline. No business logic, no credentials."
+requires-python = ">=3.12"
+dependencies = ["python-jobspy==1.3.0"]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN"]
+ignore = ["ANN401"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -43,7 +43,7 @@ export const configSchema = z.object({
       window_margin_hours: z.number().nonnegative(),
       max_hours_old: z.number().positive(),
       results_wanted: z.number().int().positive(),
-      linkedin_fetch_description: z.boolean(),
+      fetch_description: z.boolean(),
     }),
     gupy: z.object({ enabled: z.boolean(), queries: z.array(z.string()) }),
     greenhouse: companyList,

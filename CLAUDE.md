@@ -214,14 +214,16 @@ uv run --project sidecar/jobspy python -m jobspy_sidecar
     "is_remote": false,
     "hours_old": 60,
     "results_wanted": 30,
-    "linkedin_fetch_description": true,
+    "fetch_description": true,
     "description_format": "markdown"
   }
   ```
-- **Saída (stdout):** apenas um array JSON de vagas — campos do JobSpy convertidos para JSON (datas em ISO 8601, `NaN` → `null`). Nada além do JSON no stdout.
+- **Saída (stdout):** apenas um array JSON de vagas — campos do JobSpy convertidos para JSON (datas em ISO 8601, `NaN` → `null`). Nada além do JSON no stdout (a saída do próprio JobSpy é redirecionada para o stderr). Em exit `2` o array traz as vagas dos sites que não foram bloqueados.
 - **Logs:** somente no stderr.
-- **Exit codes:** `0` sucesso (array pode ser vazio); `2` bloqueio detectado (429/403/captcha) — informar quais sites no stderr em JSON; `1` qualquer outro erro.
-- **Sem credenciais:** o sidecar não aceita nem lê usuário, senha, cookie ou proxy autenticado. Se o JobSpy oferecer opção de login, ela não é exposta.
+- **Execução:** um `scrape_jobs()` por site, em sequência; bloqueio é detectado por exceção ou pelas mensagens de log do JobSpy (429/403/captcha/rate limit), já que a biblioteca não lança erro nesses casos.
+- **Exit codes:** `0` sucesso (array pode ser vazio); `2` algum site bloqueado; `1` entrada inválida ou nenhum site funcionou. A última linha do stderr é sempre `{"blocked": [...], "failed": [...]}`; sites em `failed` (erro que não é bloqueio) não contam como coleta bem-sucedida.
+- **Sem credenciais:** o sidecar não aceita nem lê usuário, senha, cookie ou proxy autenticado. Qualquer chave fora do contrato (ex.: `proxies`) é rejeitada com exit `1`. Se o JobSpy oferecer opção de login, ela não é exposta.
+- `python-jobspy==1.3.0` (`linkedin_fetch_description` foi descontinuado em favor de `fetch_description`).
 
 No lado TypeScript:
 - **Janela de coleta (`hours_old`)**: horas desde o `last_success_at` daquela fonte + 12h de margem, limitado a `sources.jobspy.max_hours_old` (168). Na primeira execução, usa o limite.
@@ -405,7 +407,7 @@ sources:
     window_margin_hours: 12
     max_hours_old: 168
     results_wanted: 30
-    linkedin_fetch_description: true
+    fetch_description: true
   gupy: { enabled: true, queries: ["full stack", "node", "react"] }
   greenhouse: { enabled: true, companies: [] }
   lever: { enabled: true, companies: [] }
