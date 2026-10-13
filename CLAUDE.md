@@ -19,7 +19,7 @@ Documentos de apoio:
 3. **Coleta conservadora.** Volume baixo por execução, delays entre requisições. Ao receber bloqueio (HTTP 429/403, captcha, resposta vazia anômala), parar aquela fonte até a meia-noite (horário local) e registrar no log — não tentar contornar com retries agressivos. Sem proxies. Só eu posso ignorar um bloqueio, explicitamente, com `--force`.
 4. **Nunca inventar experiência.** O CV personalizado e a cover letter só podem reorganizar, reescrever e dar ênfase ao que já existe em `cv/base.yaml` (o **Base CV**). Nenhuma tecnologia, empresa, cargo, data, métrica ou responsabilidade nova. Se a vaga pede algo que eu não tenho, isso vira um **Gap** no painel — não entra no CV.
 5. **Seções fixas.** `Education`, `Languages` e `Tech Skills` são copiadas literalmente do Base CV. O LLM não recebe essas seções para edição e o render as injeta direto do YAML.
-6. **Layout idêntico ao original.** Cores, fontes, tamanhos, espaçamentos e ordem das seções seguem o PDF original (`cv/original.pdf`). Qualquer mudança no template precisa de aprovação explícita minha.
+6. **Layout idêntico ao original.** Cores, fontes, tamanhos, espaçamentos e ordem das seções seguem o PDF original (`cv/original.pdf`). Qualquer mudança no template precisa de aprovação explícita minha. Exceção aprovada: para caber em 1 página, fontes, espaçamentos e margens podem ser reduzidos **juntos, por um único fator de escala** (mínimo `render.min_scale`), mantendo as proporções.
 7. **Zero custo extra de LLM.** Toda chamada a modelo passa pelo **Claude Code instalado (`claude -p`), autenticado com a minha assinatura** — nunca pela API paga. `ANTHROPIC_API_KEY` não é usada: é removida do ambiente do processo filho, e o `doctor` falha se ela existir. Nunca usar `--bare` (ele ignora a assinatura e exige chave de API). Nunca cair para a API quando a cota acabar ([ADR 0005](docs/adr/0005-llm-calls-through-claude-code-subscription.md)).
 8. **Segredos fora do repositório.** Se algum segredo vier a existir, fica em `.env` (no `.gitignore`). Nunca logar conteúdo de segredos.
 
@@ -308,7 +308,8 @@ Mensagem para edição minha bloqueada: deixar claro que, se for verdade, o luga
 - Fidelidade ao Google Docs (origem do `original.pdf`): kerning e hinting desligados; layout feito com zoom 6× e impresso em escala 1/6 (o Chromium arredonda alturas de linha para px inteiros); margens de página via `@page`; tamanho final da página ajustado com `pdf-lib` para 596×842pt. Detalhes nos comentários de `src/render.ts` e `cv/template/cv.css`.
 - Teste de regressão (`tests/render.test.ts`): renderizar o Base CV sem alterações e comparar com `original.pdf` — mesmo número de páginas, cada linha de texto a menos de 0,5pt da posição original, e diferença de pixels (`pdf-to-img` + `pixelmatch`) abaixo de 2% por página.
 - `pnpm layout` (`scripts/compare-layout.ts`) mostra o desvio linha a linha; usar ao mexer no template.
-- **O CV gerado tem sempre 1 página.** O `original.pdf` (2 páginas) é só a fonte da verdade e a referência visual do template; o tailoring condensa o conteúdo para caber em 1 página. Se passar de 1 página: gerar mesmo assim e marcar `page_warning` (aviso no painel); eu ajusto editando.
+- **Ajuste a 1 página (`fitCvToOnePage`):** renderiza na escala 1; se passar de 1 página, reduz a escala em passos de `render.scale_step` (0,02) até caber, sem chamar o LLM, e para em `render.min_scale` (0,90). A escala reduz fonte, espaçamentos e margens juntos. Referência: o Base CV inteiro, sem cortes, já cabe em 1 página na escala 0,94.
+- **O CV gerado tem sempre 1 página.** O `original.pdf` (2 páginas) é só a fonte da verdade e a referência visual do template; o tailoring condensa o conteúdo para caber em 1 página. Se não couber nem em `min_scale`: gerar mesmo assim e marcar `page_warning` (aviso no painel); eu ajusto editando.
 - Cover letter: só `cover_letter.md` (sem PDF).
 
 ### 7. Painel de revisão (`web/` + `src/server.ts`)
@@ -414,6 +415,8 @@ models:
 render:
   font_dir: /mnt/c/Windows/Fonts
   fonts: { regular: times.ttf, bold: timesbd.ttf }
+  min_scale: 0.9
+  scale_step: 0.02
 thresholds:
   generate: 70
 limits:

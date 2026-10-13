@@ -20,8 +20,10 @@ html, body {
   font-variant-ligatures: none;
 }
 
-/* Content box spans 39.6pt..560pt, the extent of the section rules. */
-body { width: 560pt; padding-left: 39.6pt; }
+/* Content box spans 39.6pt..560pt, the extent of the section rules (36pt right margin).
+   --page-width is set by src/render.ts as 596pt / scale, so margins shrink with the scale
+   while the content still fills the page. */
+body { width: calc(var(--page-width, 596pt) - 36pt); padding-left: 39.6pt; }
 
 b { font-weight: bold; }
 a { color: #1155cc; text-decoration: underline; }

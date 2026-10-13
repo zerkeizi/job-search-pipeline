@@ -55,6 +55,8 @@ export const configSchema = z.object({
   render: z.object({
     font_dir: z.string().min(1),
     fonts: z.object({ regular: z.string().min(1), bold: z.string().min(1) }),
+    min_scale: z.number().gt(0).max(1),
+    scale_step: z.number().gt(0).lt(1),
   }),
   thresholds: z.object({ generate: z.number().min(0).max(100) }),
   limits: z.object({

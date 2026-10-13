@@ -36,6 +36,10 @@ render:
   # Times New Roman, as in cv/original.pdf. Read from the Windows install; never copied into the repo.
   font_dir: /mnt/c/Windows/Fonts
   fonts: { regular: times.ttf, bold: timesbd.ttf }
+  # The final CV is 1 page. If the tailored content still overflows, everything (fonts, spacing,
+  # margins) is scaled down proportionally in scale_step steps, never below min_scale.
+  min_scale: 0.9
+  scale_step: 0.02
 thresholds:
   generate: 70
 limits:

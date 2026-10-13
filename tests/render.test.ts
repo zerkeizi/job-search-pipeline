@@ -7,7 +7,7 @@ import { inspectPdf, type PdfLayout } from "../src/cv/pdf-inspect.js";
 import { toLines } from "../src/cv/pdf-lines.js";
 import { loadBaseCv } from "../src/cv/schema.js";
 import { comparePdfPixels } from "../src/cv/visual.js";
-import { renderCvPdf } from "../src/render.js";
+import { fitCvToOnePage, renderCvPdf } from "../src/render.js";
 
 // Rendering the unchanged Base CV must reproduce cv/original.pdf.
 describe("render regression", () => {
@@ -43,4 +43,23 @@ describe("render regression", () => {
       expect(diffRatio, `page ${page}`).toBeLessThan(0.02);
     }
   }, 60_000);
+});
+
+describe("fit to one page", () => {
+  it("scales down step by step and never below min_scale", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jobpipe-fit-"));
+    try {
+      const render = loadConfig().render;
+      const out = join(dir, "cv.pdf");
+      const { scale, pages } = await fitCvToOnePage(loadBaseCv(), render, out);
+      expect((await inspectPdf(out)).pages).toBe(pages);
+      expect(scale).toBeGreaterThanOrEqual(render.min_scale);
+      expect(scale).toBeLessThanOrEqual(1);
+      // The unchanged Base CV is 2 pages at scale 1, so fitting must have scaled it down.
+      expect(scale).toBeLessThan(1);
+      if (pages > 1) expect(scale).toBe(render.min_scale);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });
