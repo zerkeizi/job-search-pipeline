@@ -1,0 +1,20 @@
+# Tech Lexicon (see GLOSSARY.md): technologies that exist in the market, whether or not I know them.
+# The guard blocks any of these in generated text unless the Base CV supports it; scoring uses it
+# to find what a Job asks for. Add a term whenever one slips through review.
+# Entries are matched case-insensitively on word boundaries, except those listed under `case_sensitive`
+# (terms that are also ordinary English words or names); a term listed there is matched case-sensitively
+# wherever else it appears.
+
+terms:
+  languages: [JavaScript, TypeScript, Python, Java, Kotlin, Scala, Golang, Rust, Ruby, PHP, Perl, Elixir, Erlang, Haskell, Clojure, C++, "C#", "F#", Objective-C, Lua, Groovy, Julia, MATLAB, COBOL, Fortran, Solidity, Zig, Bash, PowerShell, SQL, PL/SQL, T-SQL, GraphQL, WebAssembly, HTML, CSS, SCSS, Sass, Less, VB.NET]
+  frontend: [React, React Native, Angular, AngularJS, Vue, Nuxt, Next.js, Svelte, SvelteKit, Solid.js, Remix, Gatsby, Astro, Ember.js, Backbone.js, jQuery, Redux, MobX, Zustand, RxJS, Tailwind, Bootstrap, Material UI, Chakra UI, Styled Components, Storybook, Webpack, Vite, Rollup, esbuild, Parcel, Babel, Gulp, Grunt, Three.js, D3.js, Electron, Ionic, Flutter, Xamarin, Micro-frontends, Module Federation, HubSpot, Figma]
+  backend: [Node, Nest, Deno, Bun, Fastify, Koa, Hapi, Hono, Django, Flask, FastAPI, Spring Boot, Ruby on Rails, Laravel, Symfony, CodeIgniter, Drupal, WordPress, Magento, Shopify, ASP.NET, .NET, Phoenix, Gin, Echo, Fiber, tRPC, gRPC, REST, SOAP, WebSockets, Socket.IO, OAuth, Keycloak, Auth0, Prisma, TypeORM, Sequelize, Mongoose, Drizzle, Knex, Hibernate, Celery, Sidekiq, PM2, Strapi, Contentful, Sanity]
+  data: [PostgreSQL, MySQL, MariaDB, SQLite, Oracle, SQL Server, MongoDB, Redis, Memcached, Cassandra, DynamoDB, Couchbase, CouchDB, Neo4j, Elasticsearch, OpenSearch, Solr, ClickHouse, Snowflake, BigQuery, Redshift, Databricks, Spark, Hadoop, Hive, Airflow, dbt, Kafka, RabbitMQ, ActiveMQ, NATS, Pulsar, Kinesis, Supabase, Firebase, Firestore, Pinecone, pgvector]
+  cloud: [AWS, Azure, GCP, Google Cloud, Heroku, Vercel, Netlify, Cloudflare, DigitalOcean, Lambda, EC2, S3, ECS, EKS, Fargate, CloudFront, CloudFormation, SQS, SNS, API Gateway, Cloud Run, App Engine, Azure Functions]
+  devops: [Docker, Kubernetes, Helm, Terraform, Pulumi, Ansible, Chef, Puppet, Vagrant, Nginx, Apache, Traefik, HAProxy, Linux, Jenkins, GitHub Actions, GitLab CI, CircleCI, Travis CI, ArgoCD, Argo CD, Istio, Linkerd, Prometheus, Grafana, Datadog, New Relic, Sentry, Splunk, Kibana, Logstash, OpenTelemetry, Jaeger, Consul, Vault, Git, GitHub, GitLab, Bitbucket, SonarQube, Nx, Turborepo, Lerna, kubectl, kubenav]
+  testing: [Jest, Vitest, Mocha, Chai, Jasmine, Karma, Cypress, Playwright, Puppeteer, Selenium, Testing Library, Enzyme, PHPUnit, Pest, JUnit, pytest, RSpec, k6, JMeter, Postman]
+  ai: [OpenAI, LangChain, LlamaIndex, Hugging Face, PyTorch, TensorFlow, Keras, scikit-learn, Pandas, NumPy, Claude Code, Copilot, Cursor]
+  practices: [Microservices, Serverless, Event Sourcing, CQRS, DDD, TDD, BDD, CI/CD, MVC, SEO, Scrum, Kanban, Jira, Confluence]
+  payments: [Stripe, PayPal, Adyen, Pagar.me, Mercado Pago, PagSeguro]
+
+case_sensitive: [Go, Express, Spring, Rails, Swift, Dart, Elm, Ember, Remix, Bun, Echo, Gin, Fiber, Hive, Spark, Vault, Consul, Chef, Puppet, Cursor, Sanity, Phoenix, Pest, Lambda, NATS, REST, Less, Parcel, Grunt, Gulp, Drizzle, Celery, Jasmine, Karma, Mocha, Pulsar, Snowflake, Rust, Julia, Ruby, Bash, Bootstrap, Electron, Stripe, Cypress, Selenium, Playwright, Puppeteer, Enzyme, Pandas, Apache, Jenkins, Sentry, Nest, Chai, Helm, Next, Copilot]

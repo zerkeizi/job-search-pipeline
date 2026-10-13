@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import Handlebars from "handlebars";
@@ -30,6 +31,53 @@ export function renderCvHtml(cv: BaseCv, render: Config["render"]): string {
   const template = Handlebars.compile(readFileSync(join(TEMPLATE_DIR, "cv.hbs"), "utf8"), { strict: true });
   const css = readFileSync(join(TEMPLATE_DIR, "cv.css"), "utf8");
   return template({ cv, css, fontFaces: fontFaces(render) });
+}
+
+export interface LineBudget {
+  /** Lines of body text (summary + all bullets) that fit on one page at scale 1. */
+  lines: number;
+  /** Typical characters per full line of a bullet. */
+  charsPerLine: number;
+}
+
+/**
+ * How much summary + bullet text fits on one page: lays the CV out as one continuous page and
+ * subtracts everything that isn't summary or bullets (header, fixed sections, headings, spacing).
+ */
+export async function measureLineBudget(cv: BaseCv, render: Config["render"]): Promise<LineBudget> {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const dir = join(tmpdir(), "jobpipe-budget");
+    mkdirSync(dir, { recursive: true });
+    const htmlPath = join(dir, "cv.html");
+    writeFileSync(htmlPath, renderCvHtml(cv, render));
+    await page.goto(pathToFileURL(htmlPath).href, { waitUntil: "load" });
+    await page.evaluate(() => document.fonts.ready);
+    const pageContentPx = ((PAGE.heightPt - 2 * PAGE.marginY) * 4) / 3;
+    // No named helper functions inside evaluate(): tsx/esbuild would wrap them in a `__name` call
+    // that doesn't exist in the browser.
+    return await page.evaluate((pageContentPx) => {
+      let flexiblePx = 0;
+      for (const el of document.querySelectorAll(".summary p, .job ul")) flexiblePx += el.getBoundingClientRect().height;
+      const fixedPx = document.documentElement.scrollHeight - flexiblePx;
+      const li = document.querySelector(".job li")!;
+      const lineHeightPx = parseFloat(getComputedStyle(li).lineHeight);
+      const textWidthPx = li.getBoundingClientRect().width - parseFloat(getComputedStyle(li).paddingLeft);
+      const sample = [...document.querySelectorAll(".job li")].map((e) => e.textContent ?? "").join(" ");
+      const ctx = document.createElement("canvas").getContext("2d")!;
+      const style = getComputedStyle(li);
+      // The `font` shorthand can come back empty, which would silently fall back to 10px sans-serif.
+      ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      const avgCharPx = ctx.measureText(sample).width / sample.length;
+      return {
+        lines: Math.floor((pageContentPx - fixedPx) / lineHeightPx),
+        charsPerLine: Math.floor(textWidthPx / avgCharPx),
+      };
+    }, pageContentPx);
+  } finally {
+    await browser.close();
+  }
 }
 
 export interface FitResult {

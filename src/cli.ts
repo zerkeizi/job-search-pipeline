@@ -1,11 +1,18 @@
 import { Command } from "commander";
+import { addManualJob } from "./collectors/manual.js";
+import { loadConfig } from "./config.js";
+import { loadBaseCv } from "./cv/schema.js";
+import { openDb } from "./db/index.js";
 import { formatResults, runDoctor } from "./doctor.js";
+import { generate, type GenerateOutcome, pendingJobIds } from "./generate.js";
+import { TechMatcher } from "./tech.js";
+import { UsageLog } from "./usage.js";
 
 const program = new Command().name("jobpipe").description("Collect, score and tailor job applications");
 
 program
   .command("doctor")
-  .description("check node, pnpm, uv, sidecar, playwright, .env, config and CV files")
+  .description("check node, pnpm, uv, sidecar, playwright, Claude login, config, fonts and CV files")
   .action(() => {
     const results = runDoctor();
     console.log(formatResults(results));
@@ -22,8 +29,54 @@ const notYet = (name: string, phase: number) =>
       process.exitCode = 1;
     });
 
-notYet("add", 2);
-notYet("generate", 2);
+function printOutcome(o: GenerateOutcome): void {
+  if (o.status === "generated") {
+    const scale = o.scale < 1 ? ` (scaled to ${o.scale})` : "";
+    console.log(`✓ ${o.jobId} generated: ${o.pdfPath}${scale}${o.pageWarning ? " — still more than 1 page!" : ""}`);
+    for (const w of o.warnings) console.log(`    warning: ${w}`);
+  } else if (o.status === "blocked") {
+    console.log(`✗ ${o.jobId} blocked:`);
+    for (const e of o.errors) console.log(`    ${e}`);
+  } else {
+    console.log(`! quota exhausted at ${o.jobId}; remaining jobs stay pending for the next run`);
+  }
+}
+
+async function runGenerate(jobIds: string[]): Promise<void> {
+  if (jobIds.length === 0) return console.log("nothing to generate");
+  const usage = new UsageLog("generate");
+  const outcomes = await generate(jobIds, {
+    db: openDb(),
+    config: loadConfig(),
+    cv: loadBaseCv(),
+    matcher: TechMatcher.load(),
+    usage,
+  });
+  outcomes.forEach(printOutcome);
+  console.log(usage.finish());
+  if (outcomes.some((o) => o.status !== "generated")) process.exitCode = 1;
+}
+
+program
+  .command("add")
+  .description("add a job from a pasted .txt and generate its CV + cover letter")
+  .argument("<file>", "text file with the job description")
+  .option("--url <link>", "where to apply (stored as the apply URL)")
+  .action(async (file: string, opts: { url?: string }) => {
+    const { jobId, created } = addManualJob(openDb(), file, opts.url);
+    console.log(created ? `added job ${jobId}` : `already added as job ${jobId}; generating again`);
+    await runGenerate([jobId]);
+  });
+
+program
+  .command("generate")
+  .description("tailoring + guard + render for pending jobs")
+  .option("--limit <n>", "max jobs this run", (v) => Number.parseInt(v, 10))
+  .action(async (opts: { limit?: number }) => {
+    const config = loadConfig();
+    await runGenerate(pendingJobIds(openDb(), config, opts.limit ?? config.limits.generate_per_run));
+  });
+
 notYet("collect", 3);
 notYet("score", 5);
 notYet("run", 5);

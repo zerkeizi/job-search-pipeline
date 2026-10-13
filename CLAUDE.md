@@ -18,7 +18,7 @@ Documentos de apoio:
 2. **Coleta sempre sem autenticação.** Nenhum coletor usa login, cookies, tokens de sessão ou credenciais minhas em LinkedIn, Glassdoor, Indeed, Gupy ou qualquer outro site de vagas. Só listagens públicas acessíveis deslogado. Se uma fonte passar a exigir login, ela é desativada — não se adiciona credencial. Isso protege minha conta: o pior cenário aceitável é bloqueio temporário de IP.
 3. **Coleta conservadora.** Volume baixo por execução, delays entre requisições. Ao receber bloqueio (HTTP 429/403, captcha, resposta vazia anômala), parar aquela fonte até a meia-noite (horário local) e registrar no log — não tentar contornar com retries agressivos. Sem proxies. Só eu posso ignorar um bloqueio, explicitamente, com `--force`.
 4. **Nunca inventar experiência.** O CV personalizado e a cover letter só podem reorganizar, reescrever e dar ênfase ao que já existe em `cv/base.yaml` (o **Base CV**). Nenhuma tecnologia, empresa, cargo, data, métrica ou responsabilidade nova. Se a vaga pede algo que eu não tenho, isso vira um **Gap** no painel — não entra no CV.
-5. **Seções fixas.** `Education`, `Languages` e `Tech Skills` são copiadas literalmente do Base CV. O LLM não recebe essas seções para edição e o render as injeta direto do YAML.
+5. **Seções fixas.** `Education`, `Languages` e `Tech Skills` são copiadas literalmente do Base CV. O LLM não recebe essas seções para edição e o render as injeta direto do YAML. (`Tech Skills` vai no prompt só como contexto somente leitura, para o modelo não apontar como Gap algo que eu tenho.)
 6. **Layout idêntico ao original.** Cores, fontes, tamanhos, espaçamentos e ordem das seções seguem o PDF original (`cv/original.pdf`). Qualquer mudança no template precisa de aprovação explícita minha. Exceção aprovada: para caber em 1 página, fontes, espaçamentos e margens podem ser reduzidos **juntos, por um único fator de escala** (mínimo `render.min_scale`), mantendo as proporções.
 7. **Zero custo extra de LLM.** Toda chamada a modelo passa pelo **Claude Code instalado (`claude -p`), autenticado com a minha assinatura** — nunca pela API paga. `ANTHROPIC_API_KEY` não é usada: é removida do ambiente do processo filho, e o `doctor` falha se ela existir. Nunca usar `--bare` (ele ignora a assinatura e exige chave de API). Nunca cair para a API quando a cota acabar ([ADR 0005](docs/adr/0005-llm-calls-through-claude-code-subscription.md)).
 8. **Segredos fora do repositório.** Se algum segredo vier a existir, fica em `.env` (no `.gitignore`). Nunca logar conteúdo de segredos.
@@ -260,7 +260,7 @@ Para poupar a cota da assinatura, o scoring não chama modelo nenhum ([ADR 0005]
 
 ### 4. Tailoring (modelo forte)
 - Modelo: `models.tailoring` (padrão: `sonnet`), chamado via `src/llm.ts`.
-- Entrada: Base CV **sem** Education/Languages/Tech Skills + descrição do Job + matches/gaps do scoring.
+- Entrada: Base CV **sem** Education/Languages (Tech Skills só como contexto somente leitura) + descrição do Job + matches/gaps determinísticos + orçamento de linhas.
 - Também devolve `workplace`, `office_city` e `office_days_per_week` lidos da descrição, que corrigem os valores extraídos por regra.
 - Tarefas:
   1. Identificar as skills, keywords, tecnologias e experiências mais importantes da vaga.
@@ -326,12 +326,13 @@ Interface em inglês.
 ## Chamadas ao LLM (`src/llm.ts`)
 
 Hoje só o tailoring usa LLM. Toda chamada:
-- `spawn` do `claude` (sem shell), com `-p`, `--model <alias>`, `--system-prompt` vindo de `prompts/*.md`, `--tools ""` (sem ferramentas: o modelo só lê o prompt e responde), `--no-session-persistence`, `--output-format stream-json --verbose` e `--json-schema` gerado do schema zod. Prompt e descrição vão pelo stdin.
+- `spawn` do `claude` (sem shell), com `-p`, `--model <alias>`, `--system-prompt` vindo de `prompts/*.md`, `--tools ""` (sem ferramentas: o modelo só lê o prompt e responde), `--no-session-persistence`, `--setting-sources "" --disable-slash-commands --strict-mcp-config --exclude-dynamic-system-prompt-sections` (derrubam o overhead fixo de ~10k para ~600 tokens por chamada), `--output-format stream-json --verbose` e `--json-schema` gerado do schema zod. Prompt e descrição vão pelo stdin.
 - Ambiente do processo filho **sem** `ANTHROPIC_API_KEY`. Se o evento `system/init` reportar `apiKeySource` diferente de `none`, abortar antes de qualquer custo.
 - Roda num diretório neutro (fora do repositório), para não carregar `CLAUDE.md`, hooks ou skills do projeto.
 - Lê do stream: o evento `rate_limit_event` (uso das janelas de 5h e 7 dias) e o `result` (`structured_output`, `usage`, `total_cost_usd`). A saída é validada com zod.
 - **Cota esgotada** (status de rate limit diferente de `allowed`, ou erro `rate_limit`): o `generate` para na hora; os Jobs restantes ficam `scored` e entram na próxima execução. Nunca tenta de novo em loop e nunca cai para a API.
-- Observação: cada chamada carrega um overhead fixo de contexto do Claude Code (~10k tokens de cache na medição inicial). Reduzir isso é trabalho da fase 2.
+- Medição real (fase 2): um tailoring com Sonnet ≈ 4k tokens de entrada + 3–3,5k de saída, ~US$0,05 de custo equivalente, ~23s.
+- A cover letter não cita Gaps nem a logística da vaga (dias de escritório, números do anúncio): o guard bloquearia, e os Gaps já aparecem no painel.
 
 ---
 
