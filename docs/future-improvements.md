@@ -9,3 +9,4 @@ Ideas deliberately left out of the MVP.
 - **Cover letter PDF.** Render the cover letter as a PDF for application forms that require an upload instead of a text field.
 - **`jobpipe add <url>`.** Fetch a Job directly from a Greenhouse, Lever, Ashby or Gupy URL through their public APIs, instead of pasting the text into a `.txt` file.
 - **Gmail job alerts.** Read job-alert emails through the Gmail API (read-only scope) as an extra collector.
+- **LLM score refinement.** After the deterministic score, run a cheap model (via `claude -p`) only on the top N Jobs to refine the score and catch requirements phrased without named technologies.

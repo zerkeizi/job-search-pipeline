@@ -7,7 +7,6 @@ O projeto principal é em **TypeScript**. A coleta de LinkedIn, Indeed, Glassdoo
 Documentos de apoio:
 - `GLOSSARY.md` — vocabulário do domínio. Use esses termos no código, nos prompts e nas conversas.
 - `docs/adr/` — decisões de arquitetura e o porquê.
-- `docs/batches.md` — como e onde a Message Batches API é usada.
 - `docs/future-improvements.md` — ideias deixadas fora do MVP de propósito.
 - `brainstorm.md` — versão original desta especificação, antes da sessão de refinamento. Só referência histórica; este arquivo prevalece.
 
@@ -21,21 +20,22 @@ Documentos de apoio:
 4. **Nunca inventar experiência.** O CV personalizado e a cover letter só podem reorganizar, reescrever e dar ênfase ao que já existe em `cv/base.yaml` (o **Base CV**). Nenhuma tecnologia, empresa, cargo, data, métrica ou responsabilidade nova. Se a vaga pede algo que eu não tenho, isso vira um **Gap** no painel — não entra no CV.
 5. **Seções fixas.** `Education`, `Languages` e `Tech Skills` são copiadas literalmente do Base CV. O LLM não recebe essas seções para edição e o render as injeta direto do YAML.
 6. **Layout idêntico ao original.** Cores, fontes, tamanhos, espaçamentos e ordem das seções seguem o PDF original (`cv/original.pdf`). Qualquer mudança no template precisa de aprovação explícita minha.
-7. **Segredos fora do repositório.** `ANTHROPIC_API_KEY` em `.env` (no `.gitignore`). Nunca logar conteúdo de segredos.
+7. **Zero custo extra de LLM.** Toda chamada a modelo passa pelo **Claude Code instalado (`claude -p`), autenticado com a minha assinatura** — nunca pela API paga. `ANTHROPIC_API_KEY` não é usada: é removida do ambiente do processo filho, e o `doctor` falha se ela existir. Nunca usar `--bare` (ele ignora a assinatura e exige chave de API). Nunca cair para a API quando a cota acabar ([ADR 0005](docs/adr/0005-llm-calls-through-claude-code-subscription.md)).
+8. **Segredos fora do repositório.** Se algum segredo vier a existir, fica em `.env` (no `.gitignore`). Nunca logar conteúdo de segredos.
 
 ---
 
 ## Arquitetura
 
 ```
-collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → pre-filter → scoring (direto ou batch)
+collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → pre-filter → scoring (determinístico)
   → [Analysis, se duplicata incerta] → tailoring → guard → render (PDF) → painel → eu envio
 ```
 
 ### Stack
 - TypeScript (`strict`, ESM), pnpm, Node 22+
 - SQLite + drizzle
-- `@anthropic-ai/sdk`
+- Claude Code CLI (`claude -p`, assinatura) para as chamadas de LLM — sem SDK da Anthropic
 - Playwright (render do PDF), Handlebars
 - Hono (API do painel), Vite + React (painel)
 - vitest
@@ -56,7 +56,6 @@ collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → p
 ├── package.json
 ├── docs/
 │   ├── adr/
-│   ├── batches.md
 │   └── future-improvements.md
 ├── cv/
 │   ├── original.pdf         # CV original (referência visual)
@@ -78,11 +77,12 @@ collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → p
 │   ├── status.ts            # lista tipada de status
 │   ├── dedupe.ts
 │   ├── prefilter.ts
-│   ├── scoring.ts           # chamadas diretas + Message Batches
+│   ├── scoring.ts           # score determinístico (sem LLM)
+│   ├── llm.ts               # wrapper do `claude -p` (assinatura)
 │   ├── tailoring.ts
 │   ├── guard.ts             # checagem anti-invenção
 │   ├── render.ts
-│   ├── usage.ts             # log de tokens e custo
+│   ├── usage.ts             # log de tokens, custo equivalente e cota
 │   ├── server.ts            # API hono para o painel
 │   └── cli.ts               # entrypoint
 ├── web/                     # painel de revisão (Vite + React)
@@ -107,7 +107,7 @@ Termos definidos em `GLOSSARY.md`. Resumo:
 
 - **Posting** — um anúncio numa fonte. Imutável depois de coletado.
 - **Job** — a vaga real por trás de um ou mais Postings. Score, Gaps, CV gerado e status pertencem ao Job ([ADR 0001](docs/adr/0001-postings-and-jobs-with-deterministic-dedupe.md)).
-- **Base CV** (`cv/base.yaml`) — os fatos. **Search Preferences** (`config.yaml > preferences`) — o que eu procuro. **Profile Summary** — resumo do Base CV gerado só para o scoring.
+- **Base CV** (`cv/base.yaml`) — os fatos. **Search Preferences** (`config.yaml > preferences`) — o que eu procuro. 
 - Pode haver vários Jobs da mesma empresa; não existe regra de "uma vaga por empresa".
 - **Local Office** — a empresa do Job tem escritório na minha cidade. **Preferred Job** — Job com Local Office, `workplace != 'onsite'` e `office_days` nulo ou `<= preferences.max_office_days_per_week`. É calculado, nunca armazenado. Vagas remotas de qualquer lugar (outro estado, empresa estrangeira) continuam bem-vindas; só perdem prioridade.
 
@@ -135,21 +135,18 @@ Termos definidos em `GLOSSARY.md`. Resumo:
 | `status` | texto, restrito por `CHECK` aos valores de `src/status.ts` |
 | `company`, `title` | para exibição; `company_norm`, `title_norm` para o dedupe |
 | `workplace`, `language` (`en`/`pt`/`es`, detectado no pré-filtro) | |
-| `city` | cidade do escritório conforme a vaga (Posting ou extraída pelo scoring); nula se não informada |
+| `city` | cidade do escritório conforme a vaga (Posting ou extraída da descrição); nula se não informada |
 | `office_days` | dias presenciais por semana, quando a vaga informa; nulo caso contrário |
 | `local_office`, `local_office_source` | bool + origem: `posting` (a própria vaga), `inherited` (outro Job da mesma empresa normalizada tem `true`) ou `manual` (eu corrigi no painel; prevalece sobre as outras) |
 | `description_posting_id` | Posting cuja descrição é usada no scoring e no tailoring |
 | `apply_url` | escolhido entre os Postings: fonte de origem (Gupy/Greenhouse/Lever/Ashby) primeiro |
 | `first_seen_at`, `last_seen_at` | |
 | `prefilter_reason` | por que foi `filtered_out` |
-| `batch_id` | lote em andamento quando `status = scoring` |
 | `score`, `score_reason`, `matches`, `gaps` | 0–100 + justificativa; listas em JSON |
 | `analysis_candidate_job_id` | Job com o qual pode ser duplicata (status `analysis`) |
 | `guard_errors` | violações quando `status = blocked` |
-| `page_warning` | CV gerado tem mais páginas que o original |
+| `page_warning` | CV gerado passou de 1 página |
 | `discard_reason`, `notes`, `applied_at` | |
-
-**`batches`** — `id` (da API), `submitted_at`, `job_count`, `ended_at`.
 
 **`collector_state`** — por fonte: `last_success_at`, `blocked_until`.
 
@@ -159,10 +156,9 @@ Armazenado como texto, com `CHECK` no SQLite; os nomes vêm de uma lista `as con
 
 | status | significado |
 |---|---|
-| `new` | coletado (ou devolvido por falha no lote), ainda não passou no pré-filtro/scoring |
+| `new` | coletado, ainda não passou no pré-filtro/scoring |
 | `filtered_out` | cortado pelo pré-filtro, com `prefilter_reason` |
-| `scoring` | aguardando resultado de um Message Batch |
-| `scored` | pontuado; abaixo do limiar ou aguardando a cota da execução |
+| `scored` | pontuado; abaixo do limiar, aguardando a cota da execução ou a cota da assinatura |
 | `analysis` | possível duplicata com score ≥ limiar, aguardando minha decisão |
 | `generated` | CV + cover letter prontos para revisão |
 | `blocked` | o guard barrou a geração; erros visíveis no painel |
@@ -253,18 +249,19 @@ Cada coletor implementa `collect(config): Promise<PostingIn[]>` e é independent
 ### 2. Pré-filtro (sem LLM, custo zero)
 Regras configuráveis: palavras obrigatórias/proibidas no título, senioridade, idioma, vagas antigas (> N dias), empresas bloqueadas. Localização: vaga `hybrid` ou `onsite` fora de `preferences.city` é cortada (exigiria mudança de cidade); vaga `remote` passa de qualquer lugar; `unknown` passa. Quando a modalidade/cidade só aparece na descrição, esse mesmo corte é aplicado depois do scoring (status `filtered_out` com motivo). O idioma da descrição é detectado aqui, de forma determinística (ex.: `franc`), e gravado em `jobs.language`. Registrar o motivo em `prefilter_reason`.
 
-### 3. Scoring (modelo barato)
-- Modelo: `models.scoring` (padrão: `claude-haiku-5-5`).
-- Entrada: Profile Summary + descrição do Job.
-- Saída validada por zod: `{score, reason, matches[], gaps[], seniority_fit, language, workplace, office_city, office_days_per_week}`. O `language` do modelo é só confirmação; vale o detectado no pré-filtro. `workplace`/`office_city` do modelo só preenchem o Job quando o Posting não trouxe esses dados; `office_days_per_week` preenche `office_days`.
-- Depois do scoring, recalcular `local_office`: `true` (origem `posting`) se `city` corresponde a `preferences.city`; e propagar `true` (origem `inherited`) para os outros Jobs da mesma empresa normalizada, sem sobrescrever valores `manual`. Os `gaps` do scoring são internos (entrada do tailoring); no painel aparecem os Gaps do tailoring.
-- **Prompt caching** no bloco do Profile Summary/instruções, sempre.
-- **Message Batches API** quando houver mais de `limits.batch_min_jobs` (20) Jobs aguardando; senão, chamadas diretas sequenciais. Detalhes em `docs/batches.md` ([ADR 0004](docs/adr/0004-batches-api-for-scoring.md)) — manter esse arquivo atualizado junto com o código.
-- Depois do scoring: Jobs com `analysis_candidate_job_id` e score ≥ limiar → `analysis`. Os demais com `score >= thresholds.generate` (70) seguem para tailoring, até `limits.generate_per_run` (10) por execução, ordenados **primeiro Preferred Jobs, depois por score**. O score mede só aderência ao CV; a preferência de localização nunca altera o score. O excedente fica `scored` e entra na próxima execução.
+### 3. Scoring (determinístico, sem LLM)
+Para poupar a cota da assinatura, o scoring não chama modelo nenhum ([ADR 0005](docs/adr/0005-llm-calls-through-claude-code-subscription.md)).
+- Extrai da descrição as tecnologias e keywords reconhecidas pelo **Tech Lexicon** + `cv/aliases.yaml`.
+- **matches** = as que existem no Base CV; **gaps** = as que não existem. Os `gaps` do scoring são internos (entrada do tailoring); no painel aparecem os Gaps do tailoring.
+- **score** 0–100 combinando proporção de matches, aderência do título a `preferences.target_titles` e senioridade. Fórmula e limiar definidos e calibrados com dados reais na fase 5; o limiar `thresholds.generate` deve ser revisto depois disso.
+- Extrai também, por regras/regex sobre os campos do Posting e a descrição, `workplace`, `city` e `office_days` (ex.: "3x por semana", "2 days a week", "Híbrido — Porto Alegre"). O tailoring confirma ou corrige esses campos para os Jobs gerados.
+- Depois do scoring, recalcular `local_office`: `true` (origem `posting`) se `city` corresponde a `preferences.city`; e propagar `true` (origem `inherited`) para os outros Jobs da mesma empresa normalizada, sem sobrescrever valores `manual`.
+- Jobs com `analysis_candidate_job_id` e score ≥ limiar → `analysis`. Os demais com `score >= thresholds.generate` (70) seguem para tailoring, até `limits.generate_per_run` (10) por execução, ordenados **primeiro Preferred Jobs, depois por score**. O score mede só aderência ao CV; a preferência de localização nunca altera o score. O excedente fica `scored` e entra na próxima execução.
 
 ### 4. Tailoring (modelo forte)
-- Modelo: `models.tailoring` (padrão: `claude-sonnet-5-5`). Nunca usa batch.
+- Modelo: `models.tailoring` (padrão: `sonnet`), chamado via `src/llm.ts`.
 - Entrada: Base CV **sem** Education/Languages/Tech Skills + descrição do Job + matches/gaps do scoring.
+- Também devolve `workplace`, `office_city` e `office_days_per_week` lidos da descrição, que corrigem os valores extraídos por regra.
 - Tarefas:
   1. Identificar as skills, keywords, tecnologias e experiências mais importantes da vaga.
   2. Comparar com o Base CV: strong matches e Gaps.
@@ -280,10 +277,15 @@ Regras configuráveis: palavras obrigatórias/proibidas no título, senioridade,
     "summary": "",
     "experience": [{ "company": "", "bullets": [] }],
     "cover_letter": "",
-    "changes_rationale": [{ "original": "", "rewritten": "", "why": "" }]
+    "changes_rationale": [{ "original": "", "rewritten": "", "why": "" }],
+    "workplace": "remote | hybrid | onsite | unknown",
+    "office_city": null,
+    "office_days_per_week": null
   }
   ```
-- Mesma quantidade de empresas, mesma ordem, mesmos cargos e datas do Base CV. Número de bullets por empresa pode variar ±1.
+- Mesma quantidade de empresas, mesma ordem, mesmos cargos e datas do Base CV.
+- **Bullets por empresa:** no mínimo 3 (ou todos, se o Base CV tiver menos de 3 para aquela empresa); pode ter mais quando a vaga tiver muitos pontos em comum com aquela experiência. Bullets podem ser reescritos, encurtados ou fundidos — nunca inventados (o guard verifica).
+- **Orçamento de linhas:** o CV final tem 1 página. Antes do tailoring, calcular de forma determinística, a partir do template, quantas linhas de texto cabem depois do cabeçalho e das seções fixas; o prompt recebe esse número (para o summary + bullets) e escreve dentro dele.
 - Sem histórico: Regenerate sobrescreve `output/<job_id>/` e descarta minhas edições.
 
 ### 5. Guard anti-invenção (`src/guard.ts`)
@@ -302,8 +304,11 @@ Mensagem para edição minha bloqueada: deixar claro que, se for verdade, o luga
 ### 6. Render
 - `cv/template/cv.hbs` + `cv.css` replicam o `original.pdf` (fontes, cores, tamanhos, margens, espaçamentos, ordem das seções).
 - Playwright gera `output/<job_id>/cv.pdf`. Nome final do arquivo: `Nicolas_Villanova_CV_<Empresa>.pdf`.
-- Teste de regressão visual: renderizar o Base CV sem alterações e comparar com `original.pdf` (rasterizar ambos com `pdf-to-img`, comparar com `pixelmatch` abaixo de um limiar).
-- Se o CV gerado tiver mais páginas que o original: gerar mesmo assim e marcar `page_warning` (aviso no painel); eu ajusto editando.
+- Fonte: Times New Roman, lida de `render.font_dir` (instalação do Windows, `/mnt/c/Windows/Fonts`) — nunca copiada para o repositório.
+- Fidelidade ao Google Docs (origem do `original.pdf`): kerning e hinting desligados; layout feito com zoom 6× e impresso em escala 1/6 (o Chromium arredonda alturas de linha para px inteiros); margens de página via `@page`; tamanho final da página ajustado com `pdf-lib` para 596×842pt. Detalhes nos comentários de `src/render.ts` e `cv/template/cv.css`.
+- Teste de regressão (`tests/render.test.ts`): renderizar o Base CV sem alterações e comparar com `original.pdf` — mesmo número de páginas, cada linha de texto a menos de 0,5pt da posição original, e diferença de pixels (`pdf-to-img` + `pixelmatch`) abaixo de 2% por página.
+- `pnpm layout` (`scripts/compare-layout.ts`) mostra o desvio linha a linha; usar ao mexer no template.
+- **O CV gerado tem sempre 1 página.** O `original.pdf` (2 páginas) é só a fonte da verdade e a referência visual do template; o tailoring condensa o conteúdo para caber em 1 página. Se passar de 1 página: gerar mesmo assim e marcar `page_warning` (aviso no painel); eu ajusto editando.
 - Cover letter: só `cover_letter.md` (sem PDF).
 
 ### 7. Painel de revisão (`web/` + `src/server.ts`)
@@ -317,19 +322,34 @@ Interface em inglês.
 
 ---
 
+## Chamadas ao LLM (`src/llm.ts`)
+
+Hoje só o tailoring usa LLM. Toda chamada:
+- `spawn` do `claude` (sem shell), com `-p`, `--model <alias>`, `--system-prompt` vindo de `prompts/*.md`, `--tools ""` (sem ferramentas: o modelo só lê o prompt e responde), `--no-session-persistence`, `--output-format stream-json --verbose` e `--json-schema` gerado do schema zod. Prompt e descrição vão pelo stdin.
+- Ambiente do processo filho **sem** `ANTHROPIC_API_KEY`. Se o evento `system/init` reportar `apiKeySource` diferente de `none`, abortar antes de qualquer custo.
+- Roda num diretório neutro (fora do repositório), para não carregar `CLAUDE.md`, hooks ou skills do projeto.
+- Lê do stream: o evento `rate_limit_event` (uso das janelas de 5h e 7 dias) e o `result` (`structured_output`, `usage`, `total_cost_usd`). A saída é validada com zod.
+- **Cota esgotada** (status de rate limit diferente de `allowed`, ou erro `rate_limit`): o `generate` para na hora; os Jobs restantes ficam `scored` e entram na próxima execução. Nunca tenta de novo em loop e nunca cai para a API.
+- Observação: cada chamada carrega um overhead fixo de contexto do Claude Code (~10k tokens de cache na medição inicial). Reduzir isso é trabalho da fase 2.
+
+---
+
 ## Logs
 
 Um arquivo por dia em `data/logs/`.
 
-**`<YYYY-MM-DD>_usage.log`** — toda chamada ao LLM (direta ou via batch) gera uma linha; cada etapa que usa LLM (`score`, `generate`) termina com um bloco de resumo, também impresso no terminal:
+**`<YYYY-MM-DD>_usage.log`** — toda chamada ao LLM gera uma linha com tokens, custo equivalente e o uso da cota da assinatura logo depois da chamada; cada etapa que usa LLM termina com um bloco de resumo, também impresso no terminal:
 ```
-2026-10-13 14:02:11  score     claude-haiku-5-5   job=ab12f  in=1830 cached=1500 out=210  batch=no   $0.0004
+2026-10-13 14:02:11  generate  sonnet  job=ab12f  in=2,130 cache_write=10,039 cache_read=0 out=1,480  ~$0.0310  quota 5h=12% (reset 19:00) 7d=4% (reset 18/10)
 ...
-=== score finished 2026-10-13 14:03:40 ===
-calls: 42 (batch: yes)   input: 78,400 (cached: 63,000)   output: 8,900
-estimated cost: $0.0170
+=== generate finished 2026-10-13 14:09:40 (subscription, not billed) ===
+calls: 10   input: 21,300 (cache write: 100,390, cache read: 0)   output: 14,800   equivalent cost: ~$0.31
+quota used this run: 5h 3% → 21% (+18 pts) · 7d 1% → 5% (+4 pts)
+quota remaining: 5h 79% (resets 19:00) · 7d 95% (resets 18/10 21:00)
 ```
-Custo estimado a partir de `models.prices` no `config.yaml` (nunca preço fixo no código), aplicando desconto de cache e de batch.
+- **Custo equivalente** = `total_cost_usd` que o Claude Code calcula (quanto custaria pela API). Não é cobrado; serve para eu ver se estou gastando cota à toa.
+- **Cota** = percentual usado/restante das janelas de 5h e 7 dias da assinatura, com horário de reset, vindo do `rate_limit_event`. A assinatura não expõe saldo em tokens, só percentual.
+- *(Números do exemplo são ilustrativos.)*
 
 **`<YYYY-MM-DD>_collector.log`** — por fonte: quantidade, duração, bloqueios, janela usada; resumo no fim da coleta.
 
@@ -341,13 +361,13 @@ Custo estimado a partir de `models.prices` no `config.yaml` (nunca preço fixo n
 
 ```
 pnpm jobpipe collect [--source linkedin] [--force]   # coleta (TS + sidecar); --force ignora bloqueio do dia
-pnpm jobpipe score [--no-batch]                      # pré-filtro + scoring (retoma lote pendente primeiro)
+pnpm jobpipe score                                   # pré-filtro + scoring determinístico
 pnpm jobpipe generate [--limit 10]                   # tailoring + guard + render
 pnpm jobpipe run                                     # collect → score → generate
 pnpm jobpipe add <arquivo.txt> [--url <link>]        # vaga manual
 pnpm jobpipe review                                  # sobe API + painel
-pnpm jobpipe stats                                   # vagas por status, custo do mês, bloqueios, lotes pendentes
-pnpm jobpipe doctor                                  # checa node, uv, sidecar, playwright, .env
+pnpm jobpipe stats                                   # vagas por status, tokens/custo equivalente do mês, cota atual, bloqueios
+pnpm jobpipe doctor                                  # checa node, uv, sidecar, playwright, login do claude, ausência de API key
 ```
 
 Execução sempre manual — sem cron/agendamento.
@@ -390,12 +410,10 @@ sources:
   ashby: { enabled: true, companies: [] }
   remotive: { enabled: true }
 models:
-  scoring: claude-haiku-5-5
-  tailoring: claude-sonnet-5-5
-  prices:   # USD por milhão de tokens — preencher com a tabela oficial da Anthropic
-    claude-haiku-5-5:  { input: 0, output: 0, cache_write: 0, cache_read: 0 }
-    claude-sonnet-5-5: { input: 0, output: 0, cache_write: 0, cache_read: 0 }
-  batch_discount: 0.5
+  tailoring: sonnet   # alias aceito por `claude --model`
+render:
+  font_dir: /mnt/c/Windows/Fonts
+  fonts: { regular: times.ttf, bold: timesbd.ttf }
 thresholds:
   generate: 70
 limits:
@@ -403,9 +421,7 @@ limits:
   request_delay_seconds: 1.5
   sidecar_delay_seconds: 20
   sidecar_timeout_seconds: 300
-  batch_min_jobs: 20
-  batch_poll_seconds: 30
-  batch_max_wait_minutes: 15
+  llm_timeout_seconds: 300
 ```
 
 ---
@@ -415,10 +431,10 @@ limits:
 Fazer uma fase por vez, com testes, e me mostrar o resultado antes de seguir.
 
 1. **Scaffold + Base CV + template.** Projeto TS, `jobpipe doctor`. Extrair o conteúdo de `cv/original.pdf` para `cv/base.yaml` (eu reviso). Template Handlebars/CSS + render; passar na regressão visual.
-2. **Banco + tailoring manual.** SQLite + drizzle com `postings`, `jobs` e status. `jobpipe add <arquivo.txt>` → tailoring → guard (com Tech Lexicon inicial) → PDF + cover letter. Log de uso. (Já resolve meu uso atual.)
+2. **Banco + tailoring manual.** Wrapper `src/llm.ts` do `claude -p` (com log de uso e cota). SQLite + drizzle com `postings`, `jobs` e status. `jobpipe add <arquivo.txt>` → tailoring → guard (com Tech Lexicon inicial) → PDF + cover letter. Log de uso. (Já resolve meu uso atual.)
 3. **Sidecar JobSpy** (contrato acima, com testes), wrapper TS, janela dinâmica e estado de bloqueio por fonte.
 4. **Coletores de API pública:** Gupy, depois Greenhouse/Lever/Ashby, depois Remotive. Dedupe entre fontes.
-5. **Pré-filtro + scoring** (prompt caching, Message Batches, Analysis). Medir o custo real com dados.
+5. **Pré-filtro + scoring determinístico + Analysis.** Calibrar fórmula e limiar com dados reais.
 6. **Painel de revisão.**
 7. **`stats`.**
 
@@ -431,6 +447,6 @@ Fazer uma fase por vez, com testes, e me mostrar o resultado antes de seguir.
 - TypeScript `strict`, sem `any` implícito; ESM.
 - Python do sidecar com type hints e `ruff`.
 - Prompts em `prompts/*.md`, nunca hardcoded; mudanças de prompt vão no git com mensagem explicando o porquê.
-- Testes sem rede: fixtures salvas para cada coletor e para o sidecar; cliente Anthropic falso para scoring/batches; testes do dedupe com casos de mesma vaga, republicação, zona de dúvida e vagas diferentes da mesma empresa; testes do guard com casos que devem bloquear e que devem passar; testes de Preferred Job e da herança de Local Office (incluindo `manual` prevalecendo); teste de render.
+- Testes sem rede: fixtures salvas para cada coletor e para o sidecar; `claude` falso (script que devolve stream-json de fixture, incluindo `rate_limit_event` e erro de cota) para o wrapper do LLM; testes do dedupe com casos de mesma vaga, republicação, zona de dúvida e vagas diferentes da mesma empresa; testes do guard com casos que devem bloquear e que devem passar; testes de Preferred Job e da herança de Local Office (incluindo `manual` prevalecendo); teste de render.
 - Antes de adicionar uma fonte nova, conferir se ela é acessível sem login e me dizer o que encontrou.
 - Ideias fora do escopo atual vão para `docs/future-improvements.md`.

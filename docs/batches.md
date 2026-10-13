@@ -1,6 +1,6 @@
 # Message Batches API — how and where it is used
 
-> Status: designed, implemented in build phase 5. Keep this file in sync with the code.
+> **Status: superseded — not implemented.** LLM calls go through the Claude Code subscription ([ADR 0005](adr/0005-llm-calls-through-claude-code-subscription.md)), where the Batches API does not exist, and scoring no longer uses an LLM. Kept only as a record of the design.
 > Decision record: [ADR 0004](adr/0004-batches-api-for-scoring.md).
 
 ## Where

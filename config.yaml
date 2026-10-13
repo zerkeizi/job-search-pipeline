@@ -31,12 +31,11 @@ sources:
   ashby: { enabled: true, companies: [] }
   remotive: { enabled: true }
 models:
-  scoring: claude-haiku-5-5
-  tailoring: claude-sonnet-5-5
-  prices:   # USD per million tokens — fill in from Anthropic's official pricing page
-    claude-haiku-5-5:  { input: 0, output: 0, cache_write: 0, cache_read: 0 }
-    claude-sonnet-5-5: { input: 0, output: 0, cache_write: 0, cache_read: 0 }
-  batch_discount: 0.5
+  tailoring: sonnet   # alias accepted by `claude --model`; calls go through the Claude Code subscription
+render:
+  # Times New Roman, as in cv/original.pdf. Read from the Windows install; never copied into the repo.
+  font_dir: /mnt/c/Windows/Fonts
+  fonts: { regular: times.ttf, bold: timesbd.ttf }
 thresholds:
   generate: 70
 limits:
@@ -44,6 +43,4 @@ limits:
   request_delay_seconds: 1.5
   sidecar_delay_seconds: 20
   sidecar_timeout_seconds: 300
-  batch_min_jobs: 20
-  batch_poll_seconds: 30
-  batch_max_wait_minutes: 15
+  llm_timeout_seconds: 300

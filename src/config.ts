@@ -2,13 +2,6 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { z } from "zod";
 
-const modelPrice = z.object({
-  input: z.number().nonnegative(),
-  output: z.number().nonnegative(),
-  cache_write: z.number().nonnegative(),
-  cache_read: z.number().nonnegative(),
-});
-
 const companyList = z.object({ enabled: z.boolean(), companies: z.array(z.string()) });
 
 export const configSchema = z.object({
@@ -58,11 +51,10 @@ export const configSchema = z.object({
     ashby: companyList,
     remotive: z.object({ enabled: z.boolean() }),
   }),
-  models: z.object({
-    scoring: z.string(),
-    tailoring: z.string(),
-    prices: z.record(z.string(), modelPrice),
-    batch_discount: z.number().min(0).max(1),
+  models: z.object({ tailoring: z.string().min(1) }),
+  render: z.object({
+    font_dir: z.string().min(1),
+    fonts: z.object({ regular: z.string().min(1), bold: z.string().min(1) }),
   }),
   thresholds: z.object({ generate: z.number().min(0).max(100) }),
   limits: z.object({
@@ -70,9 +62,7 @@ export const configSchema = z.object({
     request_delay_seconds: z.number().nonnegative(),
     sidecar_delay_seconds: z.number().nonnegative(),
     sidecar_timeout_seconds: z.number().positive(),
-    batch_min_jobs: z.number().int().positive(),
-    batch_poll_seconds: z.number().positive(),
-    batch_max_wait_minutes: z.number().positive(),
+    llm_timeout_seconds: z.number().positive(),
   }),
 });
 

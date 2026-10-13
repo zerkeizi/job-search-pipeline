@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{cv.name}}</title>
+<style>{{{fontFaces}}}</style>
+<style>{{{css}}}</style>
+</head>
+<body>
+<header>
+  <h1>{{cv.name}}</h1>
+  <p class="headline">{{cv.headline}}</p>
+  <p class="contacts">{{#each cv.contacts}}{{#unless @first}} | {{/unless}}<a href="{{url}}">{{label}}</a>{{/each}}</p>
+</header>
+
+<section class="summary">
+  <h2>Summary</h2>
+  <p>{{cv.summary}}</p>
+</section>
+
+<section class="experience">
+  <h2>Professional Experience</h2>
+  {{#each cv.experience}}
+  <article class="job">
+    <div class="job-head"><span><b>{{company}} |</b> {{role}}</span><span class="dates">{{start}} - {{end}}</span></div>
+    <ul>
+      {{#each bullets}}<li>{{this}}</li>{{/each}}
+    </ul>
+  </article>
+  {{/each}}
+</section>
+
+<section class="education">
+  <h2>Education</h2>
+  <div class="body">
+  {{#each cv.education}}
+    <p class="degree">{{degree}}</p>
+    <p class="institution">{{institution}} ({{period}})</p>
+  {{/each}}
+  </div>
+</section>
+
+<section class="languages">
+  <h2>Languages</h2>
+  <p class="body">{{#each cv.languages}}{{#unless @first}} | {{/unless}}<b>{{language}}:</b> {{level}}{{/each}}</p>
+</section>
+
+<section class="skills">
+  <h2>Tech Skills</h2>
+  <div class="body">
+  {{#each cv.tech_skills}}
+    <p><b>{{category}}:</b> {{items}}</p>
+  {{/each}}
+  </div>
+</section>
+</body>
+</html>

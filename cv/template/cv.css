@@ -1,0 +1,74 @@
+/* Replicates cv/original.pdf (Google Docs export). Units in pt to match the PDF. */
+:root {
+  --body-size: 12pt;
+  --body-line: 15.87pt;
+  --rule: 1pt solid #000;
+}
+
+/* Page size and margins (595.5pt x 842.25pt, 21.26pt top/bottom) are set by src/render.ts. */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  font-family: "CV Serif", "Times New Roman", serif;
+  font-size: var(--body-size);
+  line-height: var(--body-line);
+  color: #000;
+  -webkit-print-color-adjust: exact;
+  font-kerning: none;
+  text-rendering: geometricPrecision;
+  font-variant-ligatures: none;
+}
+
+/* Content box spans 39.6pt..560pt, the extent of the section rules. */
+body { width: 560pt; padding-left: 39.6pt; }
+
+b { font-weight: bold; }
+a { color: #1155cc; text-decoration: underline; }
+
+/* Header */
+header { text-align: center; }
+h1 { font-size: 18pt; font-weight: normal; line-height: 20.7pt; padding-top: 0.88pt; letter-spacing: -0.136pt; }
+.headline { line-height: 13.8pt; margin-top: -0.25pt; }
+.contacts { line-height: 13.8pt; margin-top: 0.05pt; }
+
+/* Section headings with the rule underneath */
+h2 {
+  font-size: 15pt;
+  font-weight: normal;
+  text-transform: uppercase;
+  line-height: 19.84pt;
+  margin-top: 13.59pt;
+  padding-bottom: 1.15pt;
+}
+/* The rule belongs to the content below the heading, as in the original: when the
+   heading is the last thing on a page, the rule moves to the next page with the content. */
+h2 + * { border-top: var(--rule); padding-top: 1.08pt; }
+section { break-inside: auto; }
+
+/* Spacing above each heading differs in the original (Google Docs paragraph spacing). */
+.summary h2 { margin-top: 17.99pt; margin-left: 1.5pt; }
+.experience h2 { margin-top: 15.66pt; }
+.skills h2 { margin-top: 14.76pt; }
+.education h2 { padding-bottom: 0.9pt; }
+.education .body { padding-top: 1.52pt; }
+.languages h2 { padding-bottom: 0.4pt; }
+.languages .body { padding-top: 1.83pt; }
+/* In the original the Tech Skills content starts on page 2 with extra space under the rule. */
+.skills .body { padding-top: 1.59pt; }
+.summary p { margin-left: 3pt; }
+
+/* Experience */
+.job + .job { margin-top: 13.8pt; }
+.job-head { display: flex; justify-content: space-between; }
+/* The original's dates end ~2.3pt short of the rule's right edge. */
+.dates { white-space: nowrap; padding-right: 2.26pt; }
+ul { list-style: none; }
+li { position: relative; padding-left: 17.25pt; }
+li::before { content: "-"; position: absolute; left: 6pt; }
+
+/* Education */
+.degree { font-size: 13pt; font-weight: bold; line-height: 16.8pt; }
+.institution { line-height: 15.87pt; padding-top: 0.13pt; }
+.institution + .degree { margin-top: 0.18pt; }
+.institution:last-child { padding-top: 0.2pt; }

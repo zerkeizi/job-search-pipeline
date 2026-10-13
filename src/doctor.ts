@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
 import { loadConfig } from "./config.js";
 
@@ -13,6 +14,7 @@ export interface CheckResult {
 
 export interface DoctorEnv {
   nodeVersion: string;
+  envVars: NodeJS.ProcessEnv;
   exists: (path: string) => boolean;
   readFile: (path: string) => string;
   /** Runs a command without a shell; returns trimmed stdout, or null if it failed. */
@@ -21,6 +23,7 @@ export interface DoctorEnv {
 
 export const defaultEnv: DoctorEnv = {
   nodeVersion: process.versions.node,
+  envVars: process.env,
   exists: existsSync,
   readFile: (path) => readFileSync(path, "utf8"),
   run: (cmd, args) => {
@@ -63,15 +66,33 @@ export function checkPlaywright(env: DoctorEnv): CheckResult {
     : { name: "playwright", status: "fail", detail: "not installed (pnpm exec playwright install chromium)" };
 }
 
-export function checkEnvFile(env: DoctorEnv): CheckResult {
-  if (!env.exists(".env")) {
-    return { name: ".env", status: "fail", detail: "missing (copy .env.example)" };
+export function checkClaudeAuth(env: DoctorEnv): CheckResult {
+  const out = env.run("claude", ["auth", "status"]);
+  if (out === null) return { name: "claude", status: "fail", detail: "Claude Code CLI not found or not logged in" };
+  try {
+    const status = JSON.parse(out) as { loggedIn?: boolean; authMethod?: string; subscriptionType?: string };
+    if (!status.loggedIn) return { name: "claude", status: "fail", detail: "not logged in (run `claude` and /login)" };
+    if (status.authMethod !== "claude.ai") {
+      return { name: "claude", status: "fail", detail: `logged in via ${status.authMethod}, expected a claude.ai subscription` };
+    }
+    return { name: "claude", status: "ok", detail: `subscription (${status.subscriptionType ?? "unknown plan"})` };
+  } catch {
+    return { name: "claude", status: "fail", detail: "could not parse `claude auth status`" };
   }
+}
+
+/** An API key would make `claude -p` bill per token instead of using the subscription (ADR 0005). */
+export function checkNoApiKey(env: DoctorEnv): CheckResult {
+  const inDotenv = env.exists(".env") && Boolean(parseDotenv(env.readFile(".env")).ANTHROPIC_API_KEY);
   // Only report presence; never print secret values.
-  const vars = parseDotenv(env.readFile(".env"));
-  return vars.ANTHROPIC_API_KEY
-    ? { name: ".env", status: "ok", detail: "ANTHROPIC_API_KEY set" }
-    : { name: ".env", status: "fail", detail: "ANTHROPIC_API_KEY empty" };
+  if (env.envVars.ANTHROPIC_API_KEY || inDotenv) {
+    return {
+      name: "no API key",
+      status: "fail",
+      detail: `ANTHROPIC_API_KEY is set${inDotenv ? " in .env" : " in the environment"} — remove it to avoid API charges`,
+    };
+  }
+  return { name: "no API key", status: "ok", detail: "ANTHROPIC_API_KEY not set" };
 }
 
 export function checkConfig(): CheckResult {
@@ -80,6 +101,18 @@ export function checkConfig(): CheckResult {
     return { name: "config.yaml", status: "ok", detail: "valid" };
   } catch (err) {
     return { name: "config.yaml", status: "fail", detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export function checkFonts(env: DoctorEnv): CheckResult {
+  try {
+    const { font_dir, fonts } = loadConfig().render;
+    const missing = [fonts.regular, fonts.bold].filter((f) => !env.exists(join(font_dir, f)));
+    return missing.length === 0
+      ? { name: "CV fonts", status: "ok", detail: font_dir }
+      : { name: "CV fonts", status: "fail", detail: `missing in ${font_dir}: ${missing.join(", ")}` };
+  } catch {
+    return { name: "CV fonts", status: "fail", detail: "config.yaml render section invalid" };
   }
 }
 
@@ -98,8 +131,10 @@ export function runDoctor(env: DoctorEnv = defaultEnv): CheckResult[] {
     checkUv(env),
     checkSidecar(env),
     checkPlaywright(env),
-    checkEnvFile(env),
+    checkClaudeAuth(env),
+    checkNoApiKey(env),
     checkConfig(),
+    checkFonts(env),
     ...checkCvFiles(env),
   ];
 }

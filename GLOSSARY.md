@@ -30,10 +30,6 @@ _Avoid_: ideal job, top job, local flexible
 A Job the system dropped by cheap rules before scoring, with a recorded reason.
 _Avoid_: rejected, discarded
 
-**Scoring**:
-A Job whose score is being computed in a batch that has not returned yet.
-_Avoid_: pending, queued
-
 **Analysis**:
 A promising Job that may be the same opening as another Job, waiting for me to merge it or keep it separate.
 _Avoid_: review, pending, triage
@@ -60,16 +56,18 @@ _Avoid_: profile, resume data, original CV
 What I am looking for: target titles, seniority, locations, Workplace, languages, blocked companies.
 _Avoid_: profile, filters
 
-**Profile Summary**:
-A condensed view of the Base CV used only as input for scoring.
-_Avoid_: profile
-
 ## Fit
 
 **Tech Lexicon**:
-A broad, hand-maintained list of technologies that exist in the market, regardless of whether I know them. Used to recognize a technology mentioned in generated text that the Base CV does not support. Grows whenever I spot one that slipped through.
+A broad, hand-maintained list of technologies that exist in the market, regardless of whether I know them. Used to recognize the technologies a Job asks for and any technology in generated text that the Base CV does not support. Grows whenever I spot one that slipped through.
 _Avoid_: tech list, skills list
 
 **Gap**:
 Something a Job asks for that the Base CV does not support. Shown to me; never written into the CV.
 _Avoid_: lacuna, missing skill, missing keyword
+
+## Usage
+
+**Quota**:
+The share of my Claude subscription's 5-hour and 7-day usage windows consumed or remaining, expressed as percentages. Every LLM call draws from it; nothing is billed per token.
+_Avoid_: credits, balance, budget
