@@ -1,0 +1,3 @@
+# Scoring uses the Message Batches API above a threshold
+
+Scoring runs on every collected Job, so it is where token volume concentrates. When more than `limits.batch_min_jobs` Jobs are waiting, `jobpipe score` sends them as one Message Batch (50% cheaper, stacks with prompt caching) instead of individual calls. Since runs are manual and a batch can take from minutes up to 24h, the command polls for a bounded time and, if the batch is not done, exits and leaves the Jobs in `scoring`; the next run collects the results before doing anything else. We accepted an extra status and resumable state in exchange for the discount. Tailoring is not batched: it runs on few Jobs and I want its output right away.

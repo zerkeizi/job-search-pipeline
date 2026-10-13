@@ -1,0 +1,83 @@
+import { readFileSync } from "node:fs";
+import { parse } from "yaml";
+import { z } from "zod";
+
+const modelPrice = z.object({
+  input: z.number().nonnegative(),
+  output: z.number().nonnegative(),
+  cache_write: z.number().nonnegative(),
+  cache_read: z.number().nonnegative(),
+});
+
+const companyList = z.object({ enabled: z.boolean(), companies: z.array(z.string()) });
+
+export const configSchema = z.object({
+  preferences: z.object({
+    target_titles: z.array(z.string()),
+    seniority: z.array(z.string()),
+    remote_only: z.boolean(),
+    city: z.string().min(1),
+    city_aliases: z.array(z.string()),
+    max_office_days_per_week: z.number().int().min(0).max(5),
+    languages: z.array(z.enum(["en", "pt", "es"])),
+  }),
+  filters: z.object({
+    exclude_title_words: z.array(z.string()),
+    max_age_days: z.number().int().positive(),
+    blocked_companies: z.array(z.string()),
+  }),
+  dedupe: z
+    .object({
+      window_days: z.number().int().positive(),
+      same_threshold: z.number().min(0).max(1),
+      similar_threshold: z.number().min(0).max(1),
+    })
+    .refine((d) => d.similar_threshold < d.same_threshold, {
+      message: "similar_threshold must be lower than same_threshold",
+    }),
+  sources: z.object({
+    jobspy: z.object({
+      enabled: z.boolean(),
+      sites: z.array(z.enum(["linkedin", "indeed", "glassdoor", "google"])),
+      searches: z.array(
+        z.object({
+          term: z.string(),
+          location: z.string(),
+          country_indeed: z.string(),
+          is_remote: z.boolean().optional(),
+        }),
+      ),
+      window_margin_hours: z.number().nonnegative(),
+      max_hours_old: z.number().positive(),
+      results_wanted: z.number().int().positive(),
+      linkedin_fetch_description: z.boolean(),
+    }),
+    gupy: z.object({ enabled: z.boolean(), queries: z.array(z.string()) }),
+    greenhouse: companyList,
+    lever: companyList,
+    ashby: companyList,
+    remotive: z.object({ enabled: z.boolean() }),
+  }),
+  models: z.object({
+    scoring: z.string(),
+    tailoring: z.string(),
+    prices: z.record(z.string(), modelPrice),
+    batch_discount: z.number().min(0).max(1),
+  }),
+  thresholds: z.object({ generate: z.number().min(0).max(100) }),
+  limits: z.object({
+    generate_per_run: z.number().int().positive(),
+    request_delay_seconds: z.number().nonnegative(),
+    sidecar_delay_seconds: z.number().nonnegative(),
+    sidecar_timeout_seconds: z.number().positive(),
+    batch_min_jobs: z.number().int().positive(),
+    batch_poll_seconds: z.number().positive(),
+    batch_max_wait_minutes: z.number().positive(),
+  }),
+});
+
+export type Config = z.infer<typeof configSchema>;
+
+export function loadConfig(path = "config.yaml"): Config {
+  return configSchema.parse(parse(readFileSync(path, "utf8")));
+}

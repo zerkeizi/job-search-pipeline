@@ -1,0 +1,3 @@
+# Uncertain duplicates are kept separate and sent to Analysis
+
+When a new Posting matches an existing Job's company and title but its description is only moderately similar (between `dedupe.similar_threshold` and `dedupe.same_threshold`), we don't guess. It becomes its own Job and, if it scores at or above the generate threshold, goes to **Analysis**, where I choose Merge or Keep separate. A wrong merge would silently hide a real opening, while a wrong split only costs one cheap scoring call, so automation only merges when it is certain. A "one application per company" rule was considered and rejected: I want to be able to pursue several openings at the same company.

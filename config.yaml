@@ -1,0 +1,49 @@
+preferences:
+  target_titles: ["full stack", "fullstack", "back-end", "node", "react"]
+  seniority: ["pleno", "senior", "mid"]
+  remote_only: false
+  city: "Porto Alegre"
+  city_aliases: ["POA", "Porto Alegre, RS", "Porto Alegre - RS"]
+  max_office_days_per_week: 3
+  languages: ["en", "pt", "es"]
+filters:
+  exclude_title_words: ["estágio", "intern", "junior", "lead", "manager"]
+  max_age_days: 21
+  blocked_companies: []
+dedupe:
+  window_days: 60
+  same_threshold: 0.8
+  similar_threshold: 0.5
+sources:
+  jobspy:
+    enabled: true
+    sites: ["linkedin", "indeed", "glassdoor", "google"]
+    searches:
+      - { term: "full stack developer", location: "Brazil", country_indeed: "Brazil" }
+      - { term: "node.js developer", location: "Brazil", country_indeed: "Brazil", is_remote: true }
+    window_margin_hours: 12
+    max_hours_old: 168
+    results_wanted: 30
+    linkedin_fetch_description: true
+  gupy: { enabled: true, queries: ["full stack", "node", "react"] }
+  greenhouse: { enabled: true, companies: [] }
+  lever: { enabled: true, companies: [] }
+  ashby: { enabled: true, companies: [] }
+  remotive: { enabled: true }
+models:
+  scoring: claude-haiku-5-5
+  tailoring: claude-sonnet-5-5
+  prices:   # USD per million tokens — fill in from Anthropic's official pricing page
+    claude-haiku-5-5:  { input: 0, output: 0, cache_write: 0, cache_read: 0 }
+    claude-sonnet-5-5: { input: 0, output: 0, cache_write: 0, cache_read: 0 }
+  batch_discount: 0.5
+thresholds:
+  generate: 70
+limits:
+  generate_per_run: 10
+  request_delay_seconds: 1.5
+  sidecar_delay_seconds: 20
+  sidecar_timeout_seconds: 300
+  batch_min_jobs: 20
+  batch_poll_seconds: 30
+  batch_max_wait_minutes: 15
