@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, api, type JobDetail } from "./api.js";
+import { ApiError, api, type GenerateMode, type JobDetail } from "./api.js";
+import { describeMode, GenerateMenu } from "./GenerateMenu.js";
 
 interface Draft {
   summary: string;
@@ -9,7 +10,7 @@ interface Draft {
 
 const draftOf = (job: JobDetail): Draft => ({
   summary: job.analysis?.summary ?? job.base.summary,
-  bullets: job.base.experience.map((e, i) => job.analysis?.experience[i]?.bullets ?? e.bullets),
+  bullets: job.base.experience.map((e, i) => job.analysis?.experience?.[i]?.bullets ?? e.bullets),
   coverLetter: job.coverLetter,
 });
 
@@ -45,25 +46,38 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
 
   const save = () =>
     run("save", async () => {
-      const r = await api.saveEdits(id, draft);
+      const base = draftOf(job);
+      const cvChanged = draft.summary !== base.summary || JSON.stringify(draft.bullets) !== JSON.stringify(base.bullets);
+      const r = await api.saveEdits(id, {
+        ...(cvChanged ? { summary: draft.summary, bullets: draft.bullets } : {}),
+        ...(draft.coverLetter !== base.coverLetter ? { coverLetter: draft.coverLetter } : {}),
+      });
       await load();
       setPdfVersion((v) => v + 1);
       await onChanged();
       setMessage({
         kind: r.warnings.length || r.pageWarning ? "warn" : "good",
-        text: `Saved and re-rendered${r.scale < 1 ? ` (scaled to ${r.scale})` : ""}${r.pageWarning ? " — still more than 1 page" : ""}.`,
+        text: cvChanged
+          ? `Saved and re-rendered${r.scale !== null && r.scale < 1 ? ` (scaled to ${r.scale})` : ""}${r.pageWarning ? " — still more than 1 page" : ""}.`
+          : "Cover letter saved.",
         details: r.warnings,
       });
     });
 
-  const regenerate = () => {
-    if (!confirm("Regenerate this CV and cover letter? Your edits will be lost, and it uses subscription quota.")) return;
+  const regenerate = (mode: GenerateMode) => {
+    const replaced = (mode !== "cover_letter" && job.parts.cv) || (mode !== "cv" && job.parts.coverLetter);
+    if (
+      !confirm(
+        `Generate ${describeMode(mode)}?${replaced ? " Your edits to what is regenerated will be lost." : ""} It uses subscription quota.`,
+      )
+    )
+      return;
     void run("regenerate", async () => {
-      const r = await api.regenerate(id);
+      const r = await api.generate(id, mode);
       await load();
       setPdfVersion((v) => v + 1);
       await onChanged();
-      if (r.status === "generated") setMessage({ kind: "good", text: "Regenerated." });
+      if (r.status === "generated") setMessage({ kind: "good", text: `Generated ${describeMode(mode)}.` });
       else if (r.status === "quota_exhausted")
         setMessage({ kind: "bad", text: "Subscription quota exhausted — try again after the reset." });
       else setMessage({ kind: "bad", text: "Regeneration was blocked by the guard.", details: r.errors });
@@ -96,7 +110,7 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
   };
 
   const a = job.analysis;
-  const rationale = (rewritten: string) => a?.changes_rationale.find((r) => r.rewritten.trim() === rewritten.trim());
+  const rationale = (rewritten: string) => a?.changes_rationale?.find((r) => r.rewritten.trim() === rewritten.trim());
   const errors = job.status === "blocked" ? job.guardErrors : [];
   const warnings = a?.guard?.warnings ?? [];
 
@@ -117,7 +131,10 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
           <button disabled={!job.applyUrl} onClick={() => job.applyUrl && window.open(job.applyUrl, "_blank", "noopener")}>
             Open apply link
           </button>
-          <button onClick={() => run("copy", () => navigator.clipboard.writeText(draft.coverLetter), "Cover letter copied.")}>
+          <button
+            disabled={!job.parts.coverLetter}
+            onClick={() => run("copy", () => navigator.clipboard.writeText(draft.coverLetter), "Cover letter copied.")}
+          >
             Copy cover letter
           </button>
           {readOnly ? (
@@ -126,9 +143,7 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
             </button>
           ) : (
             <>
-              <button disabled={busy !== null} onClick={regenerate}>
-                {busy === "regenerate" ? "Regenerating…" : "Regenerate"}
-              </button>
+              <GenerateMenu label="Generate" busy={busy === "regenerate"} existing={job.parts} onPick={regenerate} />
               <button disabled={busy !== null} onClick={discard}>
                 Discard
               </button>
@@ -200,83 +215,94 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
           )}
 
           <fieldset className="plain" disabled={readOnly}>
-            {job.hasPdf && (
+            {!job.parts.cv && <p className="muted">No tailored CV for this job — use Generate → CV only if you need one.</p>}
+            {job.parts.cv && job.hasPdf && (
               <>
                 <h3>CV preview{a?.render && a.render.scale < 1 ? ` (scale ${a.render.scale})` : ""}</h3>
                 <iframe className="pdf" title="CV" src={`/api/jobs/${id}/cv.pdf?v=${pdfVersion}`} />
               </>
             )}
 
-            <h3>Summary</h3>
-            <textarea rows={5} value={draft.summary} onChange={(e) => setDraft({ ...draft, summary: e.target.value })} />
-            <Original text={job.base.summary} why={rationale(draft.summary)?.why} />
+            {job.parts.cv && (
+              <>
+                <h3>Summary</h3>
+                <textarea rows={5} value={draft.summary} onChange={(e) => setDraft({ ...draft, summary: e.target.value })} />
+                <Original text={job.base.summary} why={rationale(draft.summary)?.why} />
 
-            {job.base.experience.map((exp, ci) => {
-              const used = new Set(draft.bullets[ci]!.map((b) => rationale(b)?.original.trim() ?? b.trim()));
-              const unused = exp.bullets.filter((b) => !used.has(b.trim()));
-              return (
-                <div key={exp.company} className="company">
-                  <h3>
-                    {exp.company} <span className="muted">· {exp.role}</span>
-                  </h3>
-                  {draft.bullets[ci]!.map((b, bi) => {
-                    const r = rationale(b);
-                    return (
-                      <div key={bi} className="bullet">
-                        <div className="row">
-                          <textarea
-                            rows={2}
-                            value={b}
-                            onChange={(e) => {
-                              const bullets = draft.bullets.map((list, i) =>
-                                i === ci ? list.map((x, j) => (j === bi ? e.target.value : x)) : list,
-                              );
-                              setDraft({ ...draft, bullets });
-                            }}
-                          />
-                          <button
-                            className="ghost"
-                            title="Remove bullet"
-                            onClick={() =>
-                              setDraft({
-                                ...draft,
-                                bullets: draft.bullets.map((list, i) => (i === ci ? list.filter((_, j) => j !== bi) : list)),
-                              })
-                            }
-                          >
-                            ×
-                          </button>
-                        </div>
-                        {r && r.original.trim() !== b.trim() && <Original text={r.original} why={r.why} />}
-                      </div>
-                    );
-                  })}
-                  {unused.length > 0 && (
-                    <details>
-                      <summary className="muted">{unused.length} Base CV bullet(s) not used — click to add back</summary>
-                      {unused.map((u) => (
-                        <button
-                          key={u}
-                          className="unused"
-                          onClick={() => setDraft({ ...draft, bullets: draft.bullets.map((list, i) => (i === ci ? [...list, u] : list)) })}
-                        >
-                          + {u}
-                        </button>
-                      ))}
-                    </details>
-                  )}
-                </div>
-              );
-            })}
+                {job.base.experience.map((exp, ci) => {
+                  const used = new Set(draft.bullets[ci]!.map((b) => rationale(b)?.original.trim() ?? b.trim()));
+                  const unused = exp.bullets.filter((b) => !used.has(b.trim()));
+                  return (
+                    <div key={exp.company} className="company">
+                      <h3>
+                        {exp.company} <span className="muted">· {exp.role}</span>
+                      </h3>
+                      {draft.bullets[ci]!.map((b, bi) => {
+                        const r = rationale(b);
+                        return (
+                          <div key={bi} className="bullet">
+                            <div className="row">
+                              <textarea
+                                rows={2}
+                                value={b}
+                                onChange={(e) => {
+                                  const bullets = draft.bullets.map((list, i) =>
+                                    i === ci ? list.map((x, j) => (j === bi ? e.target.value : x)) : list,
+                                  );
+                                  setDraft({ ...draft, bullets });
+                                }}
+                              />
+                              <button
+                                className="ghost"
+                                title="Remove bullet"
+                                onClick={() =>
+                                  setDraft({
+                                    ...draft,
+                                    bullets: draft.bullets.map((list, i) => (i === ci ? list.filter((_, j) => j !== bi) : list)),
+                                  })
+                                }
+                              >
+                                ×
+                              </button>
+                            </div>
+                            {r && r.original.trim() !== b.trim() && <Original text={r.original} why={r.why} />}
+                          </div>
+                        );
+                      })}
+                      {unused.length > 0 && (
+                        <details>
+                          <summary className="muted">{unused.length} Base CV bullet(s) not used — click to add back</summary>
+                          {unused.map((u) => (
+                            <button
+                              key={u}
+                              className="unused"
+                              onClick={() =>
+                                setDraft({ ...draft, bullets: draft.bullets.map((list, i) => (i === ci ? [...list, u] : list)) })
+                              }
+                            >
+                              + {u}
+                            </button>
+                          ))}
+                        </details>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
 
             <h3>Cover letter</h3>
-            <textarea rows={16} value={draft.coverLetter} onChange={(e) => setDraft({ ...draft, coverLetter: e.target.value })} />
+            {job.parts.coverLetter ? (
+              <textarea rows={16} value={draft.coverLetter} onChange={(e) => setDraft({ ...draft, coverLetter: e.target.value })} />
+            ) : (
+              <p className="muted">No cover letter for this job — use Generate → Cover letter only if you need one.</p>
+            )}
           </fieldset>
 
           {!readOnly && (
             <div className="row sticky">
               <button className="primary" disabled={!dirty || busy !== null || !a} onClick={save}>
-                {busy === "save" ? "Checking and rendering…" : "Save edits (guard + re-render)"}
+                {busy === "save" ? "Checking…" : "Save edits (guard + re-render)"}
               </button>
               <button disabled={!dirty || busy !== null} onClick={() => setDraft(draftOf(job))}>
                 Undo changes

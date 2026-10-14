@@ -119,6 +119,22 @@ describe("review API", () => {
     expect(pdf.headers.get("content-type")).toBe("application/pdf");
   }, 60_000);
 
+  it("edits only the cover letter of a cover-letter-only job, with no PDF", async () => {
+    const { generated, send, outputDir } = setup();
+    const id = generated();
+    const { summary: _s, experience: _e, changes_rationale: _c, ...letterOnly } = tailored();
+    writeFileSync(join(outputDir, id, "analysis.json"), JSON.stringify(letterOnly));
+    const detail = (await (await send("GET", `/api/jobs/${id}`)).json()) as { parts: { cv: boolean; coverLetter: boolean } };
+    expect(detail.parts).toEqual({ cv: false, coverLetter: true });
+
+    expect((await send("PUT", `/api/jobs/${id}/edits`, { summary: "x" })).status).toBe(409);
+    const res = await send("PUT", `/api/jobs/${id}/edits`, { coverLetter: "Dear Acme hiring team,\n\nShort and true.\n\nNicolas Villanova" });
+    expect(res.status).toBe(200);
+    expect(readFileSync(join(outputDir, id, "cover_letter.md"), "utf8")).toContain("Short and true");
+    expect(existsSync(join(outputDir, id, "analysis.json"))).toBe(true);
+    expect((await send("GET", `/api/jobs/${id}/cv.pdf`)).status).toBe(404);
+  });
+
   it("discards, marks as applied and corrects Local Office", async () => {
     const { generated, send, job } = setup();
     const a = generated();
@@ -182,7 +198,7 @@ describe("review API", () => {
     const app = createApp({ db, config, cv, matcher, outputDir, runner, logDir: join(dir, "logs") });
     ingest(db, [posting()], config.dedupe);
     const id = db.select().from(jobs).get()!.id;
-    const res = await app.request(`/api/jobs/${id}/regenerate`, { method: "POST", headers: { "x-jobpipe": "1" } });
+    const res = await app.request(`/api/jobs/${id}/generate`, { method: "POST", headers: { "x-jobpipe": "1" } });
     expect(((await res.json()) as { status: string }).status).toBe("generated");
     expect(db.select().from(jobs).get()!.status).toBe("generated");
   }, 60_000);

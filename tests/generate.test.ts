@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
@@ -69,8 +69,8 @@ describe("jobpipe add → generate", () => {
     expect(outcome?.status).toBe("generated");
     if (outcome?.status !== "generated") return;
 
-    expect(outcome.pdfPath.endsWith(cvFileName(cv, "Acme Tecnologia Ltda."))).toBe(true);
-    expect((await inspectPdf(outcome.pdfPath)).pages).toBe(1);
+    expect(outcome.pdfPath!.endsWith(cvFileName(cv, "Acme Tecnologia Ltda."))).toBe(true);
+    expect((await inspectPdf(outcome.pdfPath!)).pages).toBe(1);
     expect(readFileSync(join(deps.outputDir, jobId, "cover_letter.md"), "utf8")).toContain("Dear Acme");
     expect(existsSync(join(deps.outputDir, jobId, "analysis.json"))).toBe(true);
 
@@ -78,6 +78,26 @@ describe("jobpipe add → generate", () => {
     expect(job).toMatchObject({ status: "generated", company: "Acme Tecnologia Ltda.", companyNorm: "acme tecnologia", workplace: "hybrid", city: "Porto Alegre", officeDays: 2 });
     expect(job.gaps).toContain("Kafka");
     expect(pendingJobIds(db, config, 10)).toEqual([]);
+  }, 120_000);
+
+  it("writes only the cover letter, then adds the CV later without touching the letter", async () => {
+    const { db, jobId, deps } = setup("Acme (Gupy) wants React and Node. Remote.");
+    const full = tailored();
+    const letterOnly = { keywords: full.keywords, strong_matches: full.strong_matches, gaps: full.gaps, cover_letter: full.cover_letter, job: full.job };
+    const [first] = await generate([jobId], { ...deps, runner: fake("ok", letterOnly as TailoringOutput) }, "cover_letter");
+    expect(first).toMatchObject({ status: "generated", mode: "cover_letter", pdfPath: null });
+    const dir = join(deps.outputDir, jobId);
+    expect(readFileSync(join(dir, "cover_letter.md"), "utf8")).toContain("Dear Acme");
+    expect(readdirSync(dir).some((f) => f.endsWith(".pdf"))).toBe(false);
+    expect(db.select().from(jobs).where(eq(jobs.id, jobId)).get()!.status).toBe("generated");
+
+    const { cover_letter: _letter, ...cvOnly } = full;
+    const [second] = await generate([jobId], { ...deps, runner: fake("ok", cvOnly as TailoringOutput) }, "cv");
+    expect(second).toMatchObject({ status: "generated", mode: "cv" });
+    expect(readdirSync(dir).filter((f) => f.endsWith(".pdf"))).toHaveLength(1);
+    const analysis = JSON.parse(readFileSync(join(dir, "analysis.json"), "utf8"));
+    expect(analysis.cover_letter).toBe(full.cover_letter);
+    expect(analysis.experience).toHaveLength(cv.experience.length);
   }, 120_000);
 
   it("blocks the job when the guard finds an invented technology", async () => {

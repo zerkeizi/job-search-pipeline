@@ -111,6 +111,10 @@ details summary { cursor: pointer; font-size: 12px; margin: 4px 0; }
 
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
+.menu { position: relative; }
+.menu-items { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; display: flex; flex-direction: column; min-width: 220px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgb(0 0 0 / .15); padding: 4px; }
+.menu-items button { border: none; text-align: left; border-radius: 6px; }
+.menu-items button:hover { background: var(--bg); }
 .divider { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: var(--bg); padding: 6px 12px; border-bottom: 1px solid var(--border); }
 fieldset.plain { border: none; margin: 0; padding: 0; min-width: 0; }
 .pad { padding: 16px; }

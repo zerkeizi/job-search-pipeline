@@ -310,7 +310,9 @@ Para poupar a cota da assinatura, o scoring não chama modelo nenhum ([ADR 0005]
 - Mesma quantidade de empresas, mesma ordem, mesmos cargos e datas do Base CV.
 - **Bullets por empresa:** no mínimo 3 (ou todos, se o Base CV tiver menos de 3 para aquela empresa); pode ter mais quando a vaga tiver muitos pontos em comum com aquela experiência. Bullets podem ser reescritos, encurtados ou fundidos — nunca inventados (o guard verifica).
 - **Orçamento de linhas:** o CV final tem 1 página. Antes do tailoring, calcular de forma determinística, a partir do template, quantas linhas de texto cabem depois do cabeçalho e das seções fixas; o prompt recebe esse número (para o summary + bullets) e escreve dentro dele.
-- Sem histórico: Regenerate sobrescreve `output/<job_id>/` e descarta minhas edições.
+- **Modos** (`GenerateMode`: `both`, `cv`, `cover_letter`): dá para gerar os dois documentos ou só um. Algumas fontes (ex.: Gupy) não aceitam arquivo de CV — eu preencho o perfil no site — mas aceitam cover letter. No modo `cover_letter` o prompt não pede o CV nem leva o orçamento de linhas, e o schema só tem `keywords`, `strong_matches`, `gaps`, `cover_letter` e `job` (menos tokens de saída); no modo `cv` o schema não tem `cover_letter`. O system prompt é o mesmo; a seção "What to write" no fim da mensagem diz o que escrever. CLI: `jobpipe generate --only cv|cover-letter`.
+- Gerar uma parte mantém a outra de uma geração anterior (com minhas edições): `analysis.json` é mesclado; o PDF só é refeito quando o CV é gerado; `cover_letter.md` só quando a cover letter é gerada. As partes que um Job tem são deduzidas de `analysis.json` (`experience` → CV; `cover_letter` → cover letter).
+- Sem histórico: gerar de novo uma parte sobrescreve essa parte e descarta minhas edições nela.
 
 ### 5. Guard anti-invenção (`src/guard.ts`)
 Roda depois do tailoring e depois de cada edição minha no painel, antes do render. Vale para o CV **e** para a cover letter. Se encontrar violação, o Job vai para `blocked` com `guard_errors` visíveis no painel — **sem nova tentativa automática**.
@@ -340,8 +342,9 @@ Mensagem para edição minha bloqueada: deixar claro que, se for verdade, o luga
 Interface em inglês.
 - **Generated**: lista de Jobs `generated` (e `blocked`), ordenados primeiro Preferred Jobs, depois por score, com filtro por fonte e por Preferred. Cada Job mostra `city`, `workplace`, `office_days` e Local Office (com a origem), e permite corrigir Local Office à mão. Para cada um: descrição à esquerda; à direita, preview do PDF, **diff** bullet a bullet (original vs reescrito, com o `why`), keywords, matches, Gaps, avisos do guard/página e cover letter editável.
   - Editar summary/bullets inline e re-renderizar (edições passam pelo guard).
-  - Botões: **Open apply link**, **Copy cover letter**, **Regenerate** (com confirmação: descarta edições), **Discard** (motivo opcional), **Mark as applied** (`applied` + `applied_at`).
-- **Queue**: Jobs `scored` (fila do tailoring), na ordem em que o `generate` os pega — acima do limiar primeiro (Preferred Jobs, depois score), depois os abaixo do limiar, separados por um divisor. Mostra descrição, `score_reason`, matches/Gaps determinísticos e Local Office. Botões **Generate now** (com confirmação; gasta cota; vale também para Job abaixo do limiar), **Discard** e **Open job link**.
+  - Botões: **Open apply link**, **Copy cover letter**, **Generate ▾** (menu: CV + cover letter, CV only, Cover letter only; com confirmação, avisando quando descarta edições), **Discard** (motivo opcional), **Mark as applied** (`applied` + `applied_at`).
+  - Um Job só com cover letter mostra só a cover letter (e vice-versa); edições só podem mexer nas partes que existem.
+- **Queue**: Jobs `scored` (fila do tailoring), na ordem em que o `generate` os pega — acima do limiar primeiro (Preferred Jobs, depois score), depois os abaixo do limiar, separados por um divisor. Mostra descrição, `score_reason`, matches/Gaps determinísticos e Local Office. Botões **Generate now ▾** (CV + cover letter, CV only ou Cover letter only; com confirmação; gasta cota; vale também para Job abaixo do limiar), **Mark as applied** (para vagas em que me candidatei sem gerar nada aqui), **Discard** e **Open job link**.
 - **Applied**: Jobs `applied`, do mais recente para o mais antigo, só leitura (CV, cover letter, descrição). Botão **Undo applied** (com confirmação) para um clique por engano: volta para `generated`.
 - **Analysis**: o Job e o candidato a duplicata lado a lado (empresa, título, datas, descrições, similaridade). Botões **Merge** e **Keep separate**. Keep separate não gera nada na hora: o Job volta para `scored` (fila do tailoring, já que está acima do limiar) e aparece em Generated depois do próximo `jobpipe generate`; o painel avisa isso. O Job existente não muda.
 - **Collectors**: status de cada fonte (última coleta bem-sucedida, bloqueio até quando, último volume).
@@ -399,7 +402,7 @@ quota remaining: 5h 79% (resets 19:00) · 7d 95% (resets 18/10 21:00)
 ```
 pnpm jobpipe collect [--source linkedin] [--force]   # coleta (TS + sidecar); --force ignora bloqueio do dia
 pnpm jobpipe score [--all]                           # pré-filtro + scoring determinístico; --all reavalia os já pontuados
-pnpm jobpipe generate [--limit 10]                   # tailoring + guard + render
+pnpm jobpipe generate [--limit 10] [--only cv|cover-letter]  # tailoring + guard + render
 pnpm jobpipe run [--force]                           # collect → score → generate
 pnpm jobpipe add <arquivo.txt> [--url <link>]        # vaga manual
 pnpm jobpipe review [--port 4321]                    # build + sobe API e painel em localhost

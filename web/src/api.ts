@@ -1,4 +1,5 @@
 export type Workplace = "remote" | "hybrid" | "onsite" | "unknown";
+export type GenerateMode = "both" | "cv" | "cover_letter";
 
 export interface JobSummary {
   id: string;
@@ -24,10 +25,10 @@ export interface Analysis {
   keywords: string[];
   strong_matches: string[];
   gaps: string[];
-  summary: string;
-  experience: { company: string; bullets: string[] }[];
-  cover_letter: string;
-  changes_rationale: { original: string; rewritten: string; why: string }[];
+  summary?: string;
+  experience?: { company: string; bullets: string[] }[];
+  cover_letter?: string;
+  changes_rationale?: { original: string; rewritten: string; why: string }[];
   guard?: { errors: string[]; warnings: string[] };
   render?: { scale: number; pages: number };
   edited_at?: string;
@@ -42,6 +43,7 @@ export interface JobDetail extends JobSummary {
   analysis: Analysis | null;
   coverLetter: string;
   hasPdf: boolean;
+  parts: { cv: boolean; coverLetter: boolean };
   base: { summary: string; experience: { company: string; role: string; bullets: string[] }[] };
 }
 
@@ -79,9 +81,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export const api = {
   jobs: (view: "review" | "applied") => call<JobSummary[]>("GET", `/api/jobs${view === "applied" ? "?view=applied" : ""}`),
   job: (id: string) => call<JobDetail>("GET", `/api/jobs/${id}`),
-  saveEdits: (id: string, edits: { summary: string; bullets: string[][]; coverLetter: string }) =>
-    call<{ warnings: string[]; scale: number; pageWarning: boolean }>("PUT", `/api/jobs/${id}/edits`, edits),
-  regenerate: (id: string) => call<{ status: string; errors?: string[] }>("POST", `/api/jobs/${id}/regenerate`),
+  saveEdits: (id: string, edits: { summary?: string; bullets?: string[][]; coverLetter?: string }) =>
+    call<{ warnings: string[]; scale: number | null; pageWarning: boolean }>("PUT", `/api/jobs/${id}/edits`, edits),
+  generate: (id: string, mode: GenerateMode) => call<{ status: string; errors?: string[] }>("POST", `/api/jobs/${id}/generate`, { mode }),
   discard: (id: string, reason: string | null) => call("POST", `/api/jobs/${id}/discard`, { reason }),
   applied: (id: string) => call("POST", `/api/jobs/${id}/applied`),
   undoApplied: (id: string) => call("POST", `/api/jobs/${id}/undo-applied`),

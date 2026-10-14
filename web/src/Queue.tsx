@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type JobDetail, type JobSummary } from "./api.js";
+import { api, type GenerateMode, type JobDetail, type JobSummary } from "./api.js";
+import { describeMode, GenerateMenu } from "./GenerateMenu.js";
 import { Chips, Facts } from "./JobView.js";
 
 type QueuedJob = JobSummary & { aboveThreshold: boolean };
@@ -24,8 +25,8 @@ export function Queue({ onCount }: { onCount: (n: number) => void }) {
     <main className="split">
       <aside className="list">
         <p className="muted pad small">
-          <code>pnpm jobpipe generate</code> takes the jobs at or above {threshold}, in this order. The ones below only get generated if
-          you ask.
+          <code>pnpm jobpipe generate</code> takes the jobs at or above {threshold}, in this order. The ones below only get generated if you
+          ask.
         </p>
         {jobs.length === 0 && <p className="muted pad">The queue is empty.</p>}
         {jobs.map((j, i) => (
@@ -41,7 +42,9 @@ export function Queue({ onCount }: { onCount: (n: number) => void }) {
                 {j.preferred && <span className="badge good">Preferred</span>}
                 <span className="badge">{j.workplace}</span>
                 {j.sources.map((s) => (
-                  <span key={s} className="badge subtle">{s}</span>
+                  <span key={s} className="badge subtle">
+                    {s}
+                  </span>
                 ))}
               </div>
             </button>
@@ -73,18 +76,28 @@ function QueuedView({ id, onChanged }: { id: string; onChanged: () => Promise<vo
     }
   };
 
-  const generate = () => {
-    if (!confirm(`Generate the CV and cover letter for ${job.company} now? It uses subscription quota (~1 tailoring call).`)) return;
+  const generate = (mode: GenerateMode) => {
+    if (!confirm(`Generate ${describeMode(mode)} for ${job.company} now? It uses subscription quota (one tailoring call).`)) return;
     void run("generate", async () => {
-      const r = await api.regenerate(id);
+      const r = await api.generate(id, mode);
       if (r.status === "generated") {
-        alert("Generated — it is now in the Generated tab.");
+        alert(`Generated ${describeMode(mode)} — it is now in the Generated tab.`);
         await onChanged();
-      } else if (r.status === "quota_exhausted") setMessage({ kind: "bad", text: "Subscription quota exhausted — try again after the reset." });
+      } else if (r.status === "quota_exhausted")
+        setMessage({ kind: "bad", text: "Subscription quota exhausted — try again after the reset." });
       else {
         setMessage({ kind: "bad", text: "Blocked by the guard — it is now in the Generated tab with the errors.", details: r.errors });
         await onChanged();
       }
+    });
+  };
+
+  const applied = () => {
+    if (!confirm(`Mark ${job.company} as applied without generating anything here?`)) return;
+    void run("applied", async () => {
+      await api.applied(id);
+      alert("Marked as applied — it is now in the Applied tab.");
+      await onChanged();
     });
   };
 
@@ -116,9 +129,10 @@ function QueuedView({ id, onChanged }: { id: string; onChanged: () => Promise<vo
           <button disabled={busy !== null} onClick={discard}>
             Discard
           </button>
-          <button className="primary" disabled={busy !== null} onClick={generate}>
-            {busy === "generate" ? "Generating… (~30s)" : "Generate now"}
+          <button disabled={busy !== null} onClick={applied}>
+            Mark as applied
           </button>
+          <GenerateMenu label="Generate now" primary busy={busy === "generate"} onPick={generate} />
         </div>
       </div>
       {message && (
@@ -133,7 +147,15 @@ function QueuedView({ id, onChanged }: { id: string; onChanged: () => Promise<vo
           )}
         </div>
       )}
-      <Facts job={job} onChange={(v) => run("office", async () => { await api.localOffice(id, v); await load(); })} />
+      <Facts
+        job={job}
+        onChange={(v) =>
+          run("office", async () => {
+            await api.localOffice(id, v);
+            await load();
+          })
+        }
+      />
       <Chips label="Matches" items={job.matches} kind="good" />
       <Chips label="Gaps" items={job.gaps} kind="bad" />
       <p className="muted small">Matches and Gaps here are the deterministic ones from scoring; tailoring refines them.</p>

@@ -6,13 +6,12 @@ import type { BaseCv } from "./cv/schema.js";
 import type { Db } from "./db/index.js";
 import { collectorState, type Job, jobs, postings } from "./db/schema.js";
 import { descriptionSimilarity, ORIGIN_SOURCES } from "./dedupe.js";
-import { applyTailoring, cvFileName } from "./generate.js";
+import { applyTailoring, contentOf, cvFileName, partsOf, readAnalysis, type StoredAnalysis } from "./generate.js";
 import { guard } from "./guard.js";
 import { isPreferredJob } from "./location.js";
 import { fitCvToOnePage } from "./render.js";
 import { refreshLocalOffice } from "./scoring.js";
 import { SOURCES } from "./status.js";
-import type { TailoringOutput } from "./tailoring.js";
 import type { TechMatcher } from "./tech.js";
 
 /** Operations behind the review panel (src/server.ts). The panel never applies anywhere: I do. */
@@ -34,14 +33,6 @@ export class ReviewError extends Error {
   }
 }
 
-/** What analysis.json holds: the tailoring output plus what generate/edits added. */
-export type StoredAnalysis = TailoringOutput & {
-  deterministic?: { matches: string[]; gaps: string[] };
-  guard?: { errors: string[]; warnings: string[] };
-  render?: { scale: number; pages: number };
-  edited_at?: string;
-};
-
 function getJob(db: Db, id: string): Job {
   const job = db.select().from(jobs).where(eq(jobs.id, id)).get();
   if (!job) throw new ReviewError(`job ${id} not found`, 404);
@@ -62,11 +53,6 @@ export function pdfPathOf(outputDir: string, jobId: string): string | null {
   if (!existsSync(dir)) return null;
   const pdf = readdirSync(dir).find((f) => f.endsWith(".pdf"));
   return pdf ? join(dir, pdf) : null;
-}
-
-function readAnalysis(outputDir: string, jobId: string): StoredAnalysis | null {
-  const path = join(outputDir, jobId, "analysis.json");
-  return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as StoredAnalysis) : null;
 }
 
 const summaryOf = (db: Db, prefs: Config["preferences"], job: Job) => ({
@@ -115,39 +101,53 @@ export function jobDetail(deps: ReviewDeps, id: string) {
       .where(eq(postings.jobId, id))
       .all(),
     analysis,
+    parts: partsOf(analysis),
     coverLetter: existsSync(coverPath) ? readFileSync(coverPath, "utf8") : (analysis?.cover_letter ?? ""),
     hasPdf: pdfPathOf(deps.outputDir, id) !== null,
     base: { summary: deps.cv.summary, experience: deps.cv.experience.map((e) => ({ company: e.company, role: e.role, bullets: e.bullets })) },
   };
 }
 
+/** Edited parts; only the parts the Job has can be edited. */
 export interface Edits {
-  summary: string;
-  bullets: string[][];
-  coverLetter: string;
+  summary?: string;
+  bullets?: string[][];
+  coverLetter?: string;
 }
 
 /**
  * My edits in the panel: they go through the guard before anything is saved. A rejected edit
- * changes nothing; if the text is true, the right place for it is cv/base.yaml.
+ * changes nothing; if the text is true, the right place for it is cv/base.yaml. The PDF is
+ * re-rendered only when the CV changed.
  */
 export async function saveEdits(deps: ReviewDeps, id: string, edits: Edits) {
   const job = getJob(deps.db, id);
   const analysis = readAnalysis(deps.outputDir, id);
-  if (!analysis) throw new ReviewError("this job has no generated CV to edit; regenerate it first", 409);
-  if (edits.bullets.length !== deps.cv.experience.length)
+  const parts = partsOf(analysis);
+  if (!analysis || (!parts.cv && !parts.coverLetter))
+    throw new ReviewError("this job has nothing generated to edit; generate it first", 409);
+  const cvEdited = edits.summary !== undefined || edits.bullets !== undefined;
+  if (cvEdited && !parts.cv) throw new ReviewError("this job has no tailored CV; generate the CV first", 409);
+  if (edits.coverLetter !== undefined && !parts.coverLetter)
+    throw new ReviewError("this job has no cover letter; generate it first", 409);
+  if (edits.bullets && edits.bullets.length !== deps.cv.experience.length)
     throw new ReviewError(`expected bullets for ${deps.cv.experience.length} companies`, 400);
 
-  const tailored: TailoringOutput = {
+  const next: StoredAnalysis = {
     ...analysis,
-    summary: edits.summary.trim(),
-    experience: deps.cv.experience.map((e, i) => ({
-      company: e.company,
-      bullets: edits.bullets[i]!.map((b) => b.trim()).filter(Boolean),
-    })),
-    cover_letter: edits.coverLetter.trim(),
+    ...(edits.summary !== undefined ? { summary: edits.summary.trim() } : {}),
+    ...(edits.bullets
+      ? {
+          experience: deps.cv.experience.map((e, i) => ({
+            company: e.company,
+            bullets: edits.bullets![i]!.map((b) => b.trim()).filter(Boolean),
+          })),
+        }
+      : {}),
+    ...(edits.coverLetter !== undefined ? { cover_letter: edits.coverLetter.trim() } : {}),
   };
-  const checked = guard(deps.cv, tailored, deps.matcher);
+  const content = contentOf(deps.cv, next);
+  const checked = guard(deps.cv, content, deps.matcher);
   if (checked.errors.length > 0)
     throw new ReviewError(
       "edit rejected by the guard — nothing was saved. If it's true, add it to cv/base.yaml first.",
@@ -155,18 +155,21 @@ export async function saveEdits(deps: ReviewDeps, id: string, edits: Edits) {
       checked.errors,
     );
 
-  const old = pdfPathOf(deps.outputDir, id);
-  if (old) rmSync(old);
-  const pdfPath = join(deps.outputDir, id, cvFileName(deps.cv, job.company));
-  const fit = await fitCvToOnePage(applyTailoring(deps.cv, tailored), deps.config.render, pdfPath);
-  rmSync(pdfPath.replace(/\.pdf$/, ".html"), { force: true });
+  let fit = analysis.render ?? null;
+  if (cvEdited) {
+    const old = pdfPathOf(deps.outputDir, id);
+    if (old) rmSync(old);
+    const pdfPath = join(deps.outputDir, id, cvFileName(deps.cv, job.company));
+    fit = await fitCvToOnePage(applyTailoring(deps.cv, content), deps.config.render, pdfPath);
+    rmSync(pdfPath.replace(/\.pdf$/, ".html"), { force: true });
+  }
 
-  const stored: StoredAnalysis = { ...analysis, ...tailored, guard: checked, render: fit, edited_at: new Date().toISOString() };
+  const stored: StoredAnalysis = { ...next, guard: checked, ...(fit ? { render: fit } : {}), edited_at: new Date().toISOString() };
   writeFileSync(join(deps.outputDir, id, "analysis.json"), JSON.stringify(stored, null, 2));
-  writeFileSync(join(deps.outputDir, id, "cover_letter.md"), `${tailored.cover_letter}\n`);
-  const pageWarning = fit.pages > 1;
+  if (parts.coverLetter) writeFileSync(join(deps.outputDir, id, "cover_letter.md"), `${content.cover_letter}\n`);
+  const pageWarning = cvEdited && fit ? fit.pages > 1 : job.pageWarning;
   deps.db.update(jobs).set({ status: "generated", guardErrors: null, pageWarning }).where(eq(jobs.id, id)).run();
-  return { warnings: checked.warnings, scale: fit.scale, pageWarning };
+  return { warnings: checked.warnings, scale: fit?.scale ?? null, pageWarning };
 }
 
 export function discardJob(db: Db, id: string, reason: string | null): void {

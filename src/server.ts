@@ -22,6 +22,7 @@ import {
   setLocalOffice,
   undoApplied,
 } from "./review.js";
+import { GENERATE_MODES } from "./tailoring.js";
 import { UsageLog } from "./usage.js";
 
 export interface ServerDeps extends ReviewDeps {
@@ -32,7 +33,12 @@ export interface ServerDeps extends ReviewDeps {
   logDir?: string;
 }
 
-const editsSchema = z.object({ summary: z.string(), bullets: z.array(z.array(z.string())), coverLetter: z.string() });
+const editsSchema = z.object({
+  summary: z.string().optional(),
+  bullets: z.array(z.array(z.string())).optional(),
+  coverLetter: z.string().optional(),
+});
+const modeSchema = z.object({ mode: z.enum(GENERATE_MODES).default("both") });
 
 /**
  * API for the review panel. Listens on localhost only. Every state change needs the
@@ -65,12 +71,13 @@ export function createApp(deps: ServerDeps): Hono {
 
   app.put("/api/jobs/:id/edits", async (c) => c.json(await saveEdits(deps, c.req.param("id"), editsSchema.parse(await c.req.json()))));
 
-  app.post("/api/jobs/:id/regenerate", async (c) => {
+  app.post("/api/jobs/:id/generate", async (c) => {
     if (regenerating) return c.json({ error: "another regeneration is running" }, 409);
     regenerating = true;
     try {
+      const { mode } = modeSchema.parse(await c.req.json().catch(() => ({})));
       const usage = new UsageLog("regenerate", deps.logDir);
-      const [outcome] = await generate([c.req.param("id")], { ...deps, usage });
+      const [outcome] = await generate([c.req.param("id")], { ...deps, usage }, mode);
       console.log(usage.finish());
       return c.json(outcome);
     } finally {

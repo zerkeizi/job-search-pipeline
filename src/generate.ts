@@ -1,16 +1,16 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { desc, eq, sql } from "drizzle-orm";
 import type { Config } from "./config.js";
 import type { BaseCv } from "./cv/schema.js";
 import type { Db } from "./db/index.js";
 import { jobs, postings } from "./db/schema.js";
-import { guard } from "./guard.js";
+import { guard, type TailoredContent } from "./guard.js";
 import { type ClaudeRunner, QuotaExhaustedError } from "./llm.js";
 import { normalizeCompany, normalizeTitle } from "./normalize.js";
 import { fitCvToOnePage, type LineBudget, measureLineBudget } from "./render.js";
 import { refreshLocalOffice } from "./scoring.js";
-import { tailor, type TailoringOutput } from "./tailoring.js";
+import { type GenerateMode, includesCoverLetter, includesCv, type PartialTailoring, tailor } from "./tailoring.js";
 import { matchTechnologies, type TechMatcher } from "./tech.js";
 import { UsageLog } from "./usage.js";
 
@@ -25,7 +25,16 @@ export interface GenerateDeps {
 }
 
 export type GenerateOutcome =
-  | { jobId: string; status: "generated"; pdfPath: string; scale: number; pageWarning: boolean; warnings: string[] }
+  | {
+      jobId: string;
+      status: "generated";
+      mode: GenerateMode;
+      /** Null when only the cover letter was written. */
+      pdfPath: string | null;
+      scale: number | null;
+      pageWarning: boolean;
+      warnings: string[];
+    }
   | { jobId: string; status: "blocked"; errors: string[] }
   | { jobId: string; status: "quota_exhausted" };
 
@@ -40,11 +49,38 @@ export function cvFileName(cv: BaseCv, company: string): string {
 }
 
 /** Base CV with the tailored summary and bullets; roles, dates and fixed sections stay from the Base CV. */
-export function applyTailoring(cv: BaseCv, t: TailoringOutput): BaseCv {
+export function applyTailoring(cv: BaseCv, t: Pick<TailoredContent, "summary" | "experience">): BaseCv {
   return {
     ...cv,
     summary: t.summary,
     experience: cv.experience.map((e, i) => ({ ...e, bullets: t.experience[i]?.bullets ?? e.bullets })),
+  };
+}
+
+/** What output/<job_id>/analysis.json holds: the tailoring output(s) plus what generate/edits added. */
+export type StoredAnalysis = PartialTailoring & {
+  deterministic?: { matches: string[]; gaps: string[] };
+  guard?: { errors: string[]; warnings: string[] };
+  render?: { scale: number; pages: number };
+  edited_at?: string;
+};
+
+export function readAnalysis(outputDir: string, jobId: string): StoredAnalysis | null {
+  const path = join(outputDir, jobId, "analysis.json");
+  return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as StoredAnalysis) : null;
+}
+
+/** Which documents a Job has: a tailored CV, a cover letter, or both. */
+export function partsOf(a: StoredAnalysis | null): { cv: boolean; coverLetter: boolean } {
+  return { cv: Array.isArray(a?.experience), coverLetter: Boolean(a?.cover_letter) };
+}
+
+/** The guarded content: parts not generated fall back to the Base CV (or no cover letter), which always pass. */
+export function contentOf(cv: BaseCv, a: Partial<TailoredContent>): TailoredContent {
+  return {
+    summary: a.summary ?? cv.summary,
+    experience: a.experience ?? cv.experience.map((e) => ({ company: e.company, bullets: e.bullets })),
+    cover_letter: a.cover_letter ?? "",
   };
 }
 
@@ -69,7 +105,7 @@ export function pendingJobIds(db: Db, config: Config, limit: number): string[] {
  * Tailors, guards and renders each Job. Stops at the first quota error (the remaining Jobs stay
  * `scored` for the next run) and never retries.
  */
-export async function generate(jobIds: string[], deps: GenerateDeps): Promise<GenerateOutcome[]> {
+export async function generate(jobIds: string[], deps: GenerateDeps, mode: GenerateMode = "both"): Promise<GenerateOutcome[]> {
   const { db, config, cv, matcher } = deps;
   const outputDir = deps.outputDir ?? "output";
   const usage = deps.usage ?? new UsageLog("generate");
@@ -83,13 +119,13 @@ export async function generate(jobIds: string[], deps: GenerateDeps): Promise<Ge
       : undefined;
     if (!job || !posting) throw new Error(`job ${jobId} or its description posting not found`);
 
-    budget ??= await measureLineBudget(cv, config.render);
+    if (includesCv(mode)) budget ??= await measureLineBudget(cv, config.render);
     const { matches, gaps } = matchTechnologies(matcher, cv, posting.description);
 
     let result;
     try {
       result = await tailor(
-        { cv, description: posting.description, matches, gaps, budget },
+        { cv, description: posting.description, matches, gaps, budget, mode },
         { model: config.models.tailoring, timeoutMs: config.limits.llm_timeout_seconds * 1000, runner: deps.runner },
       );
     } catch (err) {
@@ -124,29 +160,41 @@ export async function generate(jobIds: string[], deps: GenerateDeps): Promise<Ge
       .where(eq(jobs.id, jobId))
       .run();
 
+    // Generating one part keeps the other one from an earlier run (with my edits).
     const dir = join(outputDir, jobId);
     mkdirSync(dir, { recursive: true });
-    const checked = guard(cv, t, matcher);
-    const analysis = { ...t, deterministic: { matches, gaps }, guard: checked, usage: result.usage };
+    const previous = readAnalysis(outputDir, jobId);
+    const merged: StoredAnalysis = { ...previous, ...t };
+    const content = contentOf(cv, merged);
+    const checked = guard(cv, content, matcher);
+    const analysis: StoredAnalysis = { ...merged, deterministic: { matches, gaps }, guard: checked };
+    delete analysis.edited_at;
+    const save = (a: StoredAnalysis) => writeFileSync(join(dir, "analysis.json"), JSON.stringify({ ...a, usage: result.usage }, null, 2));
 
     if (checked.errors.length > 0) {
-      writeFileSync(join(dir, "analysis.json"), JSON.stringify(analysis, null, 2));
+      save(analysis);
       db.update(jobs).set({ status: "blocked", guardErrors: checked.errors }).where(eq(jobs.id, jobId)).run();
       outcomes.push({ jobId, status: "blocked", errors: checked.errors });
       continue;
     }
 
-    const pdfPath = join(dir, cvFileName(cv, company));
-    const fit = await fitCvToOnePage(applyTailoring(cv, t), config.render, pdfPath);
-    rmSync(pdfPath.replace(/\.pdf$/, ".html"), { force: true });
-    writeFileSync(join(dir, "cover_letter.md"), t.cover_letter.trim() + "\n");
-    writeFileSync(join(dir, "analysis.json"), JSON.stringify({ ...analysis, render: fit }, null, 2));
-    const pageWarning = fit.pages > 1;
+    let pdfPath: string | null = null;
+    let fit: { scale: number; pages: number } | null = null;
+    if (includesCv(mode)) {
+      for (const f of existsSync(dir) ? readdirSync(dir) : []) if (f.endsWith(".pdf")) rmSync(join(dir, f));
+      pdfPath = join(dir, cvFileName(cv, company));
+      fit = await fitCvToOnePage(applyTailoring(cv, content), config.render, pdfPath);
+      rmSync(pdfPath.replace(/\.pdf$/, ".html"), { force: true });
+      analysis.render = fit;
+    }
+    if (includesCoverLetter(mode)) writeFileSync(join(dir, "cover_letter.md"), content.cover_letter.trim() + "\n");
+    save(analysis);
+    const pageWarning = fit ? fit.pages > 1 : job.pageWarning;
     db.update(jobs)
       .set({ status: "generated", guardErrors: null, pageWarning })
       .where(eq(jobs.id, jobId))
       .run();
-    outcomes.push({ jobId, status: "generated", pdfPath, scale: fit.scale, pageWarning, warnings: checked.warnings });
+    outcomes.push({ jobId, status: "generated", mode, pdfPath, scale: fit?.scale ?? null, pageWarning, warnings: checked.warnings });
   }
   // The tailoring may have corrected cities; Local Office follows.
   refreshLocalOffice(db, config.preferences);

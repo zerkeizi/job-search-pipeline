@@ -9,6 +9,7 @@ import { formatResults, runDoctor } from "./doctor.js";
 import { generate, type GenerateOutcome, pendingJobIds } from "./generate.js";
 import { runScoring } from "./scoring.js";
 import { computeStats, formatStats } from "./stats.js";
+import type { GenerateMode } from "./tailoring.js";
 import { TechMatcher } from "./tech.js";
 import { UsageLog } from "./usage.js";
 
@@ -25,8 +26,9 @@ program
 
 function printOutcome(o: GenerateOutcome): void {
   if (o.status === "generated") {
-    const scale = o.scale < 1 ? ` (scaled to ${o.scale})` : "";
-    console.log(`✓ ${o.jobId} generated: ${o.pdfPath}${scale}${o.pageWarning ? " — still more than 1 page!" : ""}`);
+    const scale = o.scale !== null && o.scale < 1 ? ` (scaled to ${o.scale})` : "";
+    const what = o.pdfPath ?? "cover letter only";
+    console.log(`✓ ${o.jobId} generated: ${what}${scale}${o.pdfPath && o.pageWarning ? " — still more than 1 page!" : ""}`);
     for (const w of o.warnings) console.log(`    warning: ${w}`);
   } else if (o.status === "blocked") {
     console.log(`✗ ${o.jobId} blocked:`);
@@ -36,7 +38,7 @@ function printOutcome(o: GenerateOutcome): void {
   }
 }
 
-async function runGenerate(jobIds: string[]): Promise<void> {
+async function runGenerate(jobIds: string[], mode: GenerateMode = "both"): Promise<void> {
   if (jobIds.length === 0) return console.log("nothing to generate");
   const usage = new UsageLog("generate");
   const outcomes = await generate(jobIds, {
@@ -45,7 +47,7 @@ async function runGenerate(jobIds: string[]): Promise<void> {
     cv: loadBaseCv(),
     matcher: TechMatcher.load(),
     usage,
-  });
+  }, mode);
   outcomes.forEach(printOutcome);
   console.log(usage.finish());
   if (outcomes.some((o) => o.status !== "generated")) process.exitCode = 1;
@@ -68,9 +70,16 @@ program
   .command("generate")
   .description("tailoring + guard + render for pending jobs")
   .option("--limit <n>", "max jobs this run", (v) => Number.parseInt(v, 10))
-  .action(async (opts: { limit?: number }) => {
+  .option("--only <part>", "write only the CV (cv) or only the cover letter (cover-letter)")
+  .action(async (opts: { limit?: number; only?: string }) => {
+    const mode = opts.only === undefined ? "both" : ({ cv: "cv", "cover-letter": "cover_letter" } as const)[opts.only as "cv"];
+    if (!mode) {
+      console.error(`--only must be cv or cover-letter`);
+      process.exitCode = 1;
+      return;
+    }
     const config = loadConfig();
-    await runGenerate(pendingJobIds(openDb(), config, opts.limit ?? config.limits.generate_per_run));
+    await runGenerate(pendingJobIds(openDb(), config, opts.limit ?? config.limits.generate_per_run), mode);
   });
 
 async function runCollect(opts: { source?: string; force?: boolean }): Promise<void> {

@@ -25,19 +25,49 @@ export const tailoringOutputSchema = z.strictObject({
 
 export type TailoringOutput = z.infer<typeof tailoringOutputSchema>;
 
+/**
+ * What to write: both documents, or one of them. Some boards (e.g. Gupy) take no CV file but do take
+ * a cover letter, so a cover-letter-only call skips the CV rewrite and its output tokens.
+ */
+export const GENERATE_MODES = ["both", "cv", "cover_letter"] as const;
+export type GenerateMode = (typeof GENERATE_MODES)[number];
+
+export const includesCv = (mode: GenerateMode) => mode !== "cover_letter";
+export const includesCoverLetter = (mode: GenerateMode) => mode !== "cv";
+
+const outputSchemas = {
+  both: tailoringOutputSchema,
+  cv: tailoringOutputSchema.omit({ cover_letter: true }),
+  cover_letter: tailoringOutputSchema.pick({ keywords: true, strong_matches: true, gaps: true, cover_letter: true, job: true }),
+};
+
+/** The output of one call: always keywords/matches/gaps/job facts, plus the parts the mode asked for. */
+export type PartialTailoring = Pick<TailoringOutput, "keywords" | "strong_matches" | "gaps" | "job"> &
+  Partial<Omit<TailoringOutput, "keywords" | "strong_matches" | "gaps" | "job">>;
+
+const WHAT_TO_WRITE: Record<GenerateMode, string> = {
+  both: "Write the CV and the cover letter.",
+  cv: "Write only the CV this time (no cover letter).",
+  cover_letter:
+    "Write only the cover letter this time. Do not rewrite the CV: the fields summary, experience and changes_rationale are not part of this output.",
+};
+
 export interface TailoringInput {
   cv: BaseCv;
   description: string;
   matches: string[];
   gaps: string[];
-  budget: LineBudget;
+  /** Needed when the CV is written. */
+  budget?: LineBudget;
+  mode?: GenerateMode;
 }
 
 /**
  * The user message. Fixed sections are never sent for editing (rule 5); Tech Skills goes along as
  * read-only evidence so the model doesn't report skills I have as gaps.
  */
-export function buildTailoringPrompt({ cv, description, matches, gaps, budget }: TailoringInput): string {
+export function buildTailoringPrompt({ cv, description, matches, gaps, budget, mode = "both" }: TailoringInput): string {
+  if (includesCv(mode) && !budget) throw new Error("a line budget is needed to write the CV");
   const editable = {
     headline: cv.headline,
     summary: cv.summary,
@@ -57,29 +87,33 @@ export function buildTailoringPrompt({ cv, description, matches, gaps, budget }:
     `In the Base CV: ${matches.join(", ") || "(none)"}`,
     `Not in the Base CV (gaps — never claim them): ${gaps.join(", ") || "(none)"}`,
     "",
-    "# Page budget",
-    `${budget.lines} lines in total for summary + bullets, about ${budget.charsPerLine} characters per line.`,
+    ...(budget && includesCv(mode)
+      ? ["# Page budget", `${budget.lines} lines in total for summary + bullets, about ${budget.charsPerLine} characters per line.`, ""]
+      : []),
+    "# What to write",
+    WHAT_TO_WRITE[mode],
   ].join("\n");
 }
 
-export function tailoringJsonSchema(): object {
-  const { $schema: _ignored, ...schema } = z.toJSONSchema(tailoringOutputSchema) as Record<string, unknown>;
+export function tailoringJsonSchema(mode: GenerateMode = "both"): object {
+  const { $schema: _ignored, ...schema } = z.toJSONSchema(outputSchemas[mode]) as Record<string, unknown>;
   return schema;
 }
 
 export async function tailor(
   input: TailoringInput,
   opts: { model: string; timeoutMs: number; runner?: ClaudeRunner },
-): Promise<LlmResult & { output: TailoringOutput }> {
+): Promise<LlmResult & { output: PartialTailoring }> {
+  const mode = input.mode ?? "both";
   const result = await callClaude(
     {
       model: opts.model,
       systemPrompt: readFileSync("prompts/tailoring.md", "utf8"),
       prompt: buildTailoringPrompt(input),
-      jsonSchema: tailoringJsonSchema(),
+      jsonSchema: tailoringJsonSchema(mode),
       timeoutMs: opts.timeoutMs,
     },
     opts.runner ?? defaultRunner,
   );
-  return { ...result, output: tailoringOutputSchema.parse(result.output) };
+  return { ...result, output: outputSchemas[mode].parse(result.output) };
 }
