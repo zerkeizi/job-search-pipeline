@@ -7,6 +7,7 @@ import { loadBaseCv } from "./cv/schema.js";
 import { openDb } from "./db/index.js";
 import { formatResults, runDoctor } from "./doctor.js";
 import { generate, type GenerateOutcome, pendingJobIds } from "./generate.js";
+import { runScoring } from "./scoring.js";
 import { TechMatcher } from "./tech.js";
 import { UsageLog } from "./usage.js";
 
@@ -65,8 +66,10 @@ program
   .argument("<file>", "text file with the job description")
   .option("--url <link>", "where to apply (stored as the apply URL)")
   .action(async (file: string, opts: { url?: string }) => {
-    const { jobId, created } = addManualJob(openDb(), file, opts.url);
+    const db = openDb();
+    const { jobId, created } = addManualJob(db, file, opts.url);
     console.log(created ? `added job ${jobId}` : `already added as job ${jobId}; generating again`);
+    runScoring({ db, config: loadConfig(), cv: loadBaseCv(), matcher: TechMatcher.load() }, { jobIds: [jobId] });
     await runGenerate([jobId]);
   });
 
@@ -79,44 +82,69 @@ program
     await runGenerate(pendingJobIds(openDb(), config, opts.limit ?? config.limits.generate_per_run));
   });
 
+async function runCollect(opts: { source?: string; force?: boolean }): Promise<void> {
+  const all: string[] = [...JOBSPY_SITES, ...API_SOURCES];
+  if (opts.source && !all.includes(opts.source)) {
+    console.error(`unknown source ${opts.source}; available: ${all.join(", ")}`);
+    process.exitCode = 1;
+    return;
+  }
+  const config = loadConfig();
+  const db = openDb();
+  const jobspySites = opts.source ? JOBSPY_SITES.filter((s) => s === opts.source) : [...JOBSPY_SITES];
+  if (config.sources.jobspy.enabled && jobspySites.length > 0) {
+    const s = await collectJobspy(db, config, { sites: jobspySites, force: opts.force });
+    console.log(`jobspy: ${s.created} new, ${s.linked} linked to existing jobs, ${s.flagged} possible duplicates, ${s.seenAgain} seen again, ${s.invalid} invalid dropped`);
+    if (s.skipped.length) console.log(`  skipped (blocked until midnight): ${s.skipped.join(", ")}`);
+    if (s.blocked.length) console.log(`  blocked now (until midnight): ${s.blocked.join(", ")}`);
+    for (const e of s.errors) console.log(`  error: ${e}`);
+    if (s.errors.length) process.exitCode = 1;
+  }
+  const apiSources = opts.source ? API_SOURCES.filter((s) => s === opts.source) : [...API_SOURCES];
+  for (const s of await collectApiSources(db, config, { sources: apiSources, force: opts.force })) {
+    if (s.status === "disabled" || s.status === "skipped") {
+      console.log(`${s.source}: ${s.status} (${s.detail})`);
+      continue;
+    }
+    const blocked = s.status === "blocked" ? ` — BLOCKED until midnight (${s.detail})` : "";
+    console.log(`${s.source}: ${s.created} new, ${s.linked} linked, ${s.flagged} possible duplicates, ${s.seenAgain} seen again${blocked}`);
+    for (const e of s.errors) console.log(`  error: ${e}`);
+    if (s.status === "error") process.exitCode = 1;
+  }
+}
+
+function runScore(opts: { all?: boolean }): void {
+  const config = loadConfig();
+  const s = runScoring({ db: openDb(), config, cv: loadBaseCv(), matcher: TechMatcher.load() }, opts);
+  const filtered = Object.values(s.filteredOut).reduce((a, b) => a + b, 0);
+  console.log(`score: ${s.scored} scored (${s.aboveThreshold} at/above ${config.thresholds.generate}), ${s.analysis} to Analysis, ${filtered} filtered out`);
+  for (const [why, n] of Object.entries(s.filteredOut).sort((a, b) => b[1] - a[1])) console.log(`  filtered: ${n} × ${why}`);
+}
+
 program
   .command("collect")
   .description("collect jobs: JobSpy sidecar (LinkedIn, Indeed, Glassdoor, Google) + public APIs (Gupy, Greenhouse, Lever, Ashby, Remotive)")
   .option("--source <name>", `only this source (${[...JOBSPY_SITES, ...API_SOURCES].join(", ")})`)
   .option("--force", "ignore today's block on a source (use with care: rule 3)")
-  .action(async (opts: { source?: string; force?: boolean }) => {
-    const all: string[] = [...JOBSPY_SITES, ...API_SOURCES];
-    if (opts.source && !all.includes(opts.source)) {
-      console.error(`unknown source ${opts.source}; available: ${all.join(", ")}`);
-      process.exitCode = 1;
-      return;
-    }
+  .action(runCollect);
+
+program
+  .command("score")
+  .description("pre-filter + deterministic scoring of new jobs (no LLM)")
+  .option("--all", "re-evaluate filtered_out, scored and analysis jobs too (e.g. after changing config)")
+  .action(runScore);
+
+program
+  .command("run")
+  .description("collect → score → generate")
+  .option("--force", "ignore today's collector blocks (use with care: rule 3)")
+  .action(async (opts: { force?: boolean }) => {
+    await runCollect({ force: opts.force });
+    runScore({});
     const config = loadConfig();
-    const db = openDb();
-    const jobspySites = opts.source ? JOBSPY_SITES.filter((s) => s === opts.source) : [...JOBSPY_SITES];
-    if (config.sources.jobspy.enabled && jobspySites.length > 0) {
-      const s = await collectJobspy(db, config, { sites: jobspySites, force: opts.force });
-      console.log(`jobspy: ${s.created} new, ${s.linked} linked to existing jobs, ${s.flagged} possible duplicates, ${s.seenAgain} seen again, ${s.invalid} invalid dropped`);
-      if (s.skipped.length) console.log(`  skipped (blocked until midnight): ${s.skipped.join(", ")}`);
-      if (s.blocked.length) console.log(`  blocked now (until midnight): ${s.blocked.join(", ")}`);
-      for (const e of s.errors) console.log(`  error: ${e}`);
-      if (s.errors.length) process.exitCode = 1;
-    }
-    const apiSources = opts.source ? API_SOURCES.filter((s) => s === opts.source) : [...API_SOURCES];
-    for (const s of await collectApiSources(db, config, { sources: apiSources, force: opts.force })) {
-      if (s.status === "disabled" || s.status === "skipped") {
-        console.log(`${s.source}: ${s.status} (${s.detail})`);
-        continue;
-      }
-      const blocked = s.status === "blocked" ? ` — BLOCKED until midnight (${s.detail})` : "";
-      console.log(`${s.source}: ${s.created} new, ${s.linked} linked, ${s.flagged} possible duplicates, ${s.seenAgain} seen again${blocked}`);
-      for (const e of s.errors) console.log(`  error: ${e}`);
-      if (s.status === "error") process.exitCode = 1;
-    }
+    await runGenerate(pendingJobIds(openDb(), config, config.limits.generate_per_run));
   });
 
-notYet("score", 5);
-notYet("run", 5);
 notYet("review", 6);
 notYet("stats", 7);
 

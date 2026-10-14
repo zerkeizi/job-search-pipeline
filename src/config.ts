@@ -16,6 +16,8 @@ export const configSchema = z.object({
   }),
   filters: z.object({
     exclude_title_words: z.array(z.string()),
+    /** The title must contain at least one of these (empty list = no requirement). */
+    require_title_words: z.array(z.string()).default([]),
     max_age_days: z.number().int().positive(),
     blocked_companies: z.array(z.string()),
   }),

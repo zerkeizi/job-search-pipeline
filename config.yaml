@@ -7,7 +7,9 @@ preferences:
   max_office_days_per_week: 3
   languages: ["en", "pt", "es"]
 filters:
-  exclude_title_words: ["estágio", "intern", "junior", "lead", "manager"]
+  exclude_title_words: ["estágio", "estagiário", "intern", "trainee", "junior", "lead", "manager"]
+  require_title_words: ["developer", "desenvolvedor", "desenvolvedora", "engineer", "engenheiro", "engenheira",
+    "programador", "programadora", "dev", "software", "full stack", "fullstack", "back-end", "backend", "front-end", "frontend"]
   max_age_days: 21
   blocked_companies: []
 dedupe:

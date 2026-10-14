@@ -18,3 +18,14 @@ export function normalizeTitle(title: string): string {
     .replace(/\b(node|react|vue|next|nest|nuxt)\.?js\b/g, "$1");
   return squash(t);
 }
+
+/** Lower case, no accents: for accent-insensitive matching ("Híbrido" → "hibrido"). */
+export function fold(s: string): string {
+  return stripAccents(s).toLowerCase();
+}
+
+/** True if `phrase` appears in `text` as whole words, ignoring case, accents and punctuation ("Full-Stack" ~ "full stack"). */
+export function hasPhrase(text: string, phrase: string): boolean {
+  const p = squash(fold(phrase));
+  return p.length > 0 && ` ${squash(fold(text))} `.includes(` ${p} `);
+}

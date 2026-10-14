@@ -9,6 +9,7 @@ import { guard } from "./guard.js";
 import { type ClaudeRunner, QuotaExhaustedError } from "./llm.js";
 import { normalizeCompany, normalizeTitle } from "./normalize.js";
 import { fitCvToOnePage, type LineBudget, measureLineBudget } from "./render.js";
+import { refreshLocalOffice } from "./scoring.js";
 import { tailor, type TailoringOutput } from "./tailoring.js";
 import { matchTechnologies, type TechMatcher } from "./tech.js";
 import { UsageLog } from "./usage.js";
@@ -47,15 +48,18 @@ export function applyTailoring(cv: BaseCv, t: TailoringOutput): BaseCv {
   };
 }
 
-/** Jobs waiting for tailoring: `scored` and at/above the threshold (manual Jobs have no score and always qualify). */
+/**
+ * Jobs waiting for tailoring: `scored` and at/above the threshold (manual Jobs always qualify).
+ * Order: manual Jobs, then Preferred Jobs, then by score.
+ */
 export function pendingJobIds(db: Db, config: Config, limit: number): string[] {
+  const manual = sql`exists (select 1 from ${postings} where ${postings.jobId} = ${jobs.id} and ${postings.source} = 'manual')`;
+  const preferred = sql`(${jobs.localOffice} = 1 and ${jobs.workplace} != 'onsite' and (${jobs.officeDays} is null or ${jobs.officeDays} <= ${config.preferences.max_office_days_per_week}))`;
   return db
     .select({ id: jobs.id })
     .from(jobs)
-    .where(
-      sql`${jobs.status} = 'scored' and (${jobs.score} is null or ${jobs.score} >= ${config.thresholds.generate})`,
-    )
-    .orderBy(sql`${jobs.score} is not null`, desc(jobs.score))
+    .where(sql`${jobs.status} = 'scored' and (${manual} or ${jobs.score} >= ${config.thresholds.generate})`)
+    .orderBy(desc(manual), desc(preferred), desc(jobs.score))
     .limit(limit)
     .all()
     .map((r) => r.id);
@@ -144,5 +148,7 @@ export async function generate(jobIds: string[], deps: GenerateDeps): Promise<Ge
       .run();
     outcomes.push({ jobId, status: "generated", pdfPath, scale: fit.scale, pageWarning, warnings: checked.warnings });
   }
+  // The tailoring may have corrected cities; Local Office follows.
+  refreshLocalOffice(db, config.preferences);
   return outcomes;
 }

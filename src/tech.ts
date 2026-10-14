@@ -18,8 +18,10 @@ interface Form {
 /** Recognizes Tech Lexicon technologies (and their aliases) in free text. */
 export class TechMatcher {
   private readonly forms: Form[];
+  private readonly categories = new Map<string, string>();
 
   constructor(lexicon: z.infer<typeof lexiconSchema>, aliases: z.infer<typeof aliasesSchema>) {
+    for (const [category, terms] of Object.entries(lexicon.terms)) for (const t of terms) this.categories.set(t, category);
     const caseSensitive = new Set(lexicon.case_sensitive);
     const canonicalOf = new Map<string, string>();
     for (const term of [...Object.values(lexicon.terms).flat(), ...lexicon.case_sensitive]) canonicalOf.set(term, term);
@@ -45,6 +47,11 @@ export class TechMatcher {
       lexiconSchema.parse(parse(readFileSync(lexiconPath, "utf8"))),
       aliasesSchema.parse(parse(readFileSync(aliasesPath, "utf8"))),
     );
+  }
+
+  /** Tech Lexicon category of a canonical technology name (e.g. "frontend"), if it has one. */
+  category(canonical: string): string | undefined {
+    return this.categories.get(canonical);
   }
 
   /** Canonical names of the technologies mentioned in `text`, in order of first appearance. */

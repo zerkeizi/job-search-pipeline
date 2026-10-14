@@ -77,7 +77,9 @@ collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → p
 │   ├── status.ts            # lista tipada de status
 │   ├── dedupe.ts
 │   ├── prefilter.ts
-│   ├── scoring.ts           # score determinístico (sem LLM)
+│   ├── scoring.ts           # score determinístico (sem LLM) + Local Office
+│   ├── location.ts          # extração de workplace/city/office_days + Preferred Job
+│   ├── language.ts          # detecção de idioma
 │   ├── llm.ts               # wrapper do `claude -p` (assinatura)
 │   ├── tailoring.ts
 │   ├── guard.ts             # checagem anti-invenção
@@ -252,17 +254,31 @@ Cada coletor implementa `collect(config): Promise<PostingIn[]>` e é independent
 - **Remotive** — `remotive.com/api/remote-jobs?category=software-development`. Termos deles: no máximo ~4 requisições por dia (`sources.remotive.min_interval_hours: 6`), vagas com 24h de atraso, e sempre manter o link para a vaga na Remotive (é o `url`/`apply_url` do Posting).
 - **Manual** — `jobpipe add <arquivo.txt> [--url <link>]`: texto da vaga colado num `.txt`; `--url` só preenche `url`/`apply_url`. Vaga manual **pula o pré-filtro e o limiar de score** (vai para tailoring mesmo com score baixo), mas passa pelo scoring para gerar matches e Gaps.
 
-### 2. Pré-filtro (sem LLM, custo zero)
-Regras configuráveis: palavras obrigatórias/proibidas no título, senioridade, idioma, vagas antigas (> N dias), empresas bloqueadas. Localização: vaga `hybrid` ou `onsite` fora de `preferences.city` é cortada (exigiria mudança de cidade); vaga `remote` passa de qualquer lugar; `unknown` passa. Quando a modalidade/cidade só aparece na descrição, esse mesmo corte é aplicado depois do scoring (status `filtered_out` com motivo). O idioma da descrição é detectado aqui, de forma determinística (ex.: `franc`), e gravado em `jobs.language`. Registrar o motivo em `prefilter_reason`.
+### 2. Pré-filtro (sem LLM, custo zero) — `src/prefilter.ts`
+Regras configuráveis, na ordem: empresas bloqueadas; palavras proibidas no título (`filters.exclude_title_words`, comparadas no título cru e no normalizado, que expande `Jr.`/`Sr.`); ao menos uma palavra obrigatória (`filters.require_title_words`, corta o que não é vaga de dev); idioma fora de `preferences.languages`; vaga com mais de `filters.max_age_days`; localização. Localização: vaga `hybrid` ou `onsite` fora de `preferences.city` é cortada (exigiria mudança de cidade); vaga `remote` passa de qualquer lugar; `unknown` (modalidade ou cidade) passa. Registrar o motivo em `prefilter_reason`.
 
-### 3. Scoring (determinístico, sem LLM)
+O pré-filtro roda junto com o scoring (`jobpipe score`), depois da extração de modalidade/cidade/dias; por isso o corte de localização também vale quando a informação só aparece na descrição. Vaga manual nunca é filtrada.
+
+**Extração (`src/location.ts`, `src/language.ts`):**
+- `workplace`: o do Posting; se `unknown`, procura em título + localização dos Postings (primeiro sinal claro) e depois na descrição (só sinal inequívoco: "híbrido", ou remoto sem presencial, ou o contrário).
+- `city`: primeiro trecho da localização de um Posting (`"Porto Alegre, RS, Brazil"` → `Porto Alegre`; `Remoto`/`Brazil`/`Worldwide` → nula); senão, `preferences.city` se a descrição citar a cidade ou um alias.
+- `office_days`: "3x por semana", "two days a week", "2-3 days per week" (→ 3), "dois dias presenciais por semana".
+- `language`: contagem de palavras frequentes e distintivas de en/pt/es (determinístico, sem dependência); nula se o texto for curto demais.
+
+### 3. Scoring (determinístico, sem LLM) — `src/scoring.ts`
 Para poupar a cota da assinatura, o scoring não chama modelo nenhum ([ADR 0005](docs/adr/0005-llm-calls-through-claude-code-subscription.md)).
-- Extrai da descrição as tecnologias e keywords reconhecidas pelo **Tech Lexicon** + `cv/aliases.yaml`.
+- Extrai do título + descrição as tecnologias reconhecidas pelo **Tech Lexicon** + `cv/aliases.yaml`.
 - **matches** = as que existem no Base CV; **gaps** = as que não existem. Os `gaps` do scoring são internos (entrada do tailoring); no painel aparecem os Gaps do tailoring.
-- **score** 0–100 combinando proporção de matches, aderência do título a `preferences.target_titles` e senioridade. Fórmula e limiar definidos e calibrados com dados reais na fase 5; o limiar `thresholds.generate` deve ser revisto depois disso.
-- Extrai também, por regras/regex sobre os campos do Posting e a descrição, `workplace`, `city` e `office_days` (ex.: "3x por semana", "2 days a week", "Híbrido — Porto Alegre"). O tailoring confirma ou corrige esses campos para os Jobs gerados.
-- Depois do scoring, recalcular `local_office`: `true` (origem `posting`) se `city` corresponde a `preferences.city`; e propagar `true` (origem `inherited`) para os outros Jobs da mesma empresa normalizada, sem sobrescrever valores `manual`.
-- Jobs com `analysis_candidate_job_id` e score ≥ limiar → `analysis`. Os demais com `score >= thresholds.generate` (70) seguem para tailoring, até `limits.generate_per_run` (10) por execução, ordenados **primeiro Preferred Jobs, depois por score**. O score mede só aderência ao CV; a preferência de localização nunca altera o score. O excedente fica `scored` e entra na próxima execução.
+- **score** 0–100 = `100 × (0,60 × tech + 0,25 × título + 0,15 × senioridade)`:
+  - **tech** = peso dos matches ÷ (peso dos matches + peso dos gaps + 1). Peso 1 para o core stack (categorias `languages`, `frontend`, `backend` do Tech Lexicon) e 0,4 para o resto (ORMs, protocolos, cloud, ferramentas, práticas); tecnologia citada no título vale o triplo (o título diz qual é a stack principal). O `+1` impede nota cheia para descrição que cita só uma ou duas tecnologias.
+  - **título** = 1 se contém um de `preferences.target_titles`; 0,5 se é vaga de dev genérica (`filters.require_title_words`); 0 caso contrário.
+  - **senioridade** = 1 se o título traz um de `preferences.seniority`; 0,7 se não diz; 0,3 se diz outro nível (especialista, staff, principal…).
+  - `score_reason` resume as três partes (ex.: `tech 69% (core 4/4, all 7/15), title "full stack", seniority not stated`).
+- **Calibração (fase 5, 27 vagas reais):** vagas Node/React/full stack ficaram em 75–77; React Native/React sênior em 68–71; JS full stack com Java/Kotlin no meio em 65–69; vagas Java, .NET, C# e Kotlin em 36–63. O limiar `thresholds.generate: 70` foi mantido (4 de 18 vagas passaram); baixar para 65 incluiria mais 4.
+- Depois do scoring, recalcular `local_office` de todos os Jobs (`refreshLocalOffice`): `true` (origem `posting`) se `city` corresponde a `preferences.city`; `true` (origem `inherited`) se outro Job da mesma empresa normalizada tem Local Office; `manual` nunca é sobrescrito e também propaga. Recalculado também depois do `generate`, já que o tailoring corrige a cidade.
+- Jobs com `analysis_candidate_job_id` e score ≥ limiar → `analysis`. Os demais com `score >= thresholds.generate` (70) seguem para tailoring, até `limits.generate_per_run` (10) por execução, ordenados **primeiro vagas manuais, depois Preferred Jobs, depois por score**. O score mede só aderência ao CV; a preferência de localização nunca altera o score. O excedente fica `scored` e entra na próxima execução.
+- Vaga manual (`jobpipe add`) também é pontuada (score, matches e Gaps), mas ignora o pré-filtro, o limiar e o Analysis.
+- `jobpipe score --all` reavalia também Jobs `filtered_out`, `scored` e `analysis` (ex.: depois de mudar o `config.yaml` ou o Tech Lexicon).
 
 ### 4. Tailoring (modelo forte)
 - Modelo: `models.tailoring` (padrão: `sonnet`), chamado via `src/llm.ts`.
@@ -369,9 +385,9 @@ quota remaining: 5h 79% (resets 19:00) · 7d 95% (resets 18/10 21:00)
 
 ```
 pnpm jobpipe collect [--source linkedin] [--force]   # coleta (TS + sidecar); --force ignora bloqueio do dia
-pnpm jobpipe score                                   # pré-filtro + scoring determinístico
+pnpm jobpipe score [--all]                           # pré-filtro + scoring determinístico; --all reavalia os já pontuados
 pnpm jobpipe generate [--limit 10]                   # tailoring + guard + render
-pnpm jobpipe run                                     # collect → score → generate
+pnpm jobpipe run [--force]                           # collect → score → generate
 pnpm jobpipe add <arquivo.txt> [--url <link>]        # vaga manual
 pnpm jobpipe review                                  # sobe API + painel
 pnpm jobpipe stats                                   # vagas por status, tokens/custo equivalente do mês, cota atual, bloqueios
@@ -394,7 +410,8 @@ preferences:
   max_office_days_per_week: 3
   languages: ["en", "pt", "es"]
 filters:
-  exclude_title_words: ["estágio", "intern", "junior", "lead", "manager"]
+  exclude_title_words: ["estágio", "estagiário", "intern", "trainee", "junior", "lead", "manager"]
+  require_title_words: ["developer", "desenvolvedor", "engineer", "engenheiro", "programador", "dev", "software", "full stack", ...]
   max_age_days: 21
   blocked_companies: []
 dedupe:

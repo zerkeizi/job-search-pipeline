@@ -59,7 +59,7 @@ _Avoid_: profile, filters
 ## Fit
 
 **Tech Lexicon**:
-A broad, hand-maintained list of technologies that exist in the market, regardless of whether I know them. Used to recognize the technologies a Job asks for and any technology in generated text that the Base CV does not support. Grows whenever I spot one that slipped through.
+A broad, hand-maintained list of technologies that exist in the market, regardless of whether I know them. Used to recognize the technologies a Job asks for and any technology in generated text that the Base CV does not support. Grows whenever I spot one that slipped through. Grouped in categories; `languages`, `frontend` and `backend` form the **core stack**, which weighs more in the score than the rest (ORMs, protocols, cloud, tooling, practices).
 _Avoid_: tech list, skills list
 
 **Gap**:
