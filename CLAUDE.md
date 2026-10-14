@@ -351,7 +351,7 @@ Interface em inglês.
 - Sem funil, sem taxa de resposta, sem export CSV.
 
 **Implementação:** `src/review.ts` (operações: listar, editar, descartar, aplicar, Local Office, Merge/Keep separate, status dos coletores), `src/server.ts` (rotas Hono em `/api`) e `web/` (React, construído pelo `jobpipe review` em `web/dist`).
-- `jobpipe review [--port 4321]` faz o build do painel e serve painel + API **só em `127.0.0.1`**. Toda requisição que muda estado exige o header `x-jobpipe: 1`; outro site aberto no navegador não consegue enviá-lo sem um preflight de CORS, que o servidor nunca libera.
+- `jobpipe review [--port 4321]` faz o build do painel numa pasta temporária própria (rebuilds de outro processo não trocam a interface de um servidor já rodando) e serve painel + API **só em `127.0.0.1`**. Toda requisição que muda estado exige o header `x-jobpipe: 1`; outro site aberto no navegador não consegue enviá-lo sem um preflight de CORS, que o servidor nunca libera.
 - Edição: o painel manda summary, bullets e cover letter; o guard roda antes de salvar. Edição rejeitada não altera nada (HTTP 422, com os erros e a orientação de colocar no `base.yaml` o que for verdade). Edição aceita re-renderiza o PDF, atualiza `analysis.json` (com `edited_at`) e `cover_letter.md`, e põe o Job em `generated` (um Job `blocked` pelo guard pode ser consertado editando).
 - Diff: cada bullet reescrito mostra o original do Base CV e o `why` (casados por `changes_rationale`); bullets do Base CV que ficaram de fora aparecem numa lista para adicionar de volta.
 - Regenerate chama o `generate` (gasta cota; o resumo de uso vai para o log e para o terminal do `review`); uma regeneração por vez.

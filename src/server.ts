@@ -113,6 +113,7 @@ export function createApp(deps: ServerDeps): Hono {
   });
 
   app.get("/api/collectors", (c) => c.json(collectorStatus(deps)));
+  app.all("/api/*", (c) => c.json({ error: `unknown API route ${c.req.method} ${c.req.path} — restart \`pnpm jobpipe review\`?` }, 404));
 
   if (deps.webDir) {
     app.use("/*", serveStatic({ root: deps.webDir }));

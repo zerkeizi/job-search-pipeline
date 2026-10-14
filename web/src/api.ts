@@ -73,7 +73,13 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     headers: { "content-type": "application/json", "x-jobpipe": "1" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const data = await res.json();
+  const text = await res.text();
+  let data: { error?: string; details?: string[] };
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new ApiError(`HTTP ${res.status}: ${text.slice(0, 120) || res.statusText}. If the panel was updated, restart pnpm jobpipe review.`, []);
+  }
   if (!res.ok) throw new ApiError(data.error ?? res.statusText, data.details ?? []);
   return data as T;
 }

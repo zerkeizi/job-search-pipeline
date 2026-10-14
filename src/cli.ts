@@ -150,8 +150,13 @@ program
   .description("build the review panel and serve it with its API on localhost")
   .option("--port <n>", "port", (v) => Number.parseInt(v, 10), 4321)
   .action(async (opts: { port: number }) => {
+    // Each server gets its own build: rebuilding the panel elsewhere can't swap the UI under a running API.
     const { build } = await import("vite");
-    await build({ configFile: "web/vite.config.ts", logLevel: "warn" });
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const webDir = mkdtempSync(join(tmpdir(), "jobpipe-web-"));
+    await build({ configFile: "web/vite.config.ts", logLevel: "warn", build: { outDir: webDir, emptyOutDir: true } });
     const { serve } = await import("@hono/node-server");
     const { createApp } = await import("./server.js");
     const app = createApp({
@@ -160,7 +165,7 @@ program
       cv: loadBaseCv(),
       matcher: TechMatcher.load(),
       outputDir: "output",
-      webDir: "web/dist",
+      webDir,
     });
     serve({ fetch: app.fetch, port: opts.port, hostname: "127.0.0.1" }, ({ port }) =>
       console.log(`review panel: http://localhost:${port}  (Ctrl+C to stop)`),
