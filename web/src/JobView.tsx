@@ -289,7 +289,7 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
   );
 }
 
-function Facts({ job, onChange }: { job: JobDetail; onChange: (v: boolean | null) => void }) {
+export function Facts({ job, onChange }: { job: JobDetail; onChange: (v: boolean | null) => void }) {
   const value = job.localOfficeSource === "manual" ? String(job.localOffice) : "auto";
   return (
     <div className="facts">
@@ -324,7 +324,7 @@ function Facts({ job, onChange }: { job: JobDetail; onChange: (v: boolean | null
   );
 }
 
-function Chips({ label, items, kind }: { label: string; items: string[]; kind?: "good" | "bad" }) {
+export function Chips({ label, items, kind }: { label: string; items: string[]; kind?: "good" | "bad" }) {
   if (items.length === 0) return null;
   return (
     <div className="chips">

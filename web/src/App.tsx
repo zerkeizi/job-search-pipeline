@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { type AnalysisPair, api, type CollectorRow, type JobSummary } from "./api.js";
 import { JobView } from "./JobView.js";
+import { Queue } from "./Queue.js";
 
-type Tab = "generated" | "applied" | "analysis" | "collectors";
+type Tab = "generated" | "queue" | "applied" | "analysis" | "collectors";
 
 export function App() {
   const [tab, setTab] = useState<Tab>("generated");
-  const [counts, setCounts] = useState({ generated: 0, applied: 0, analysis: 0 });
+  const [counts, setCounts] = useState({ generated: 0, queue: 0, applied: 0, analysis: 0 });
   useEffect(() => {
-    void Promise.all([api.jobs("review"), api.jobs("applied"), api.analysis()]).then(([g, a, an]) =>
-      setCounts({ generated: g.length, applied: a.length, analysis: an.length }),
+    void Promise.all([api.jobs("review"), api.queue(), api.jobs("applied"), api.analysis()]).then(([g, q, a, an]) =>
+      setCounts({ generated: g.length, queue: q.jobs.length, applied: a.length, analysis: an.length }),
     );
   }, []);
   return (
@@ -19,6 +20,9 @@ export function App() {
         <nav>
           <button className={tab === "generated" ? "active" : ""} onClick={() => setTab("generated")}>
             Generated <span className="count">{counts.generated}</span>
+          </button>
+          <button className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>
+            Queue <span className="count">{counts.queue}</span>
           </button>
           <button className={tab === "applied" ? "active" : ""} onClick={() => setTab("applied")}>
             Applied <span className="count">{counts.applied}</span>
@@ -32,6 +36,7 @@ export function App() {
         </nav>
       </header>
       {tab === "generated" && <Generated key="review" view="review" onCount={(n) => setCounts((c) => ({ ...c, generated: n }))} />}
+      {tab === "queue" && <Queue onCount={(n) => setCounts((c) => ({ ...c, queue: n }))} />}
       {tab === "applied" && <Generated key="applied" view="applied" onCount={(n) => setCounts((c) => ({ ...c, applied: n }))} />}
       {tab === "analysis" && <AnalysisTab onCount={(n) => setCounts((c) => ({ ...c, analysis: n }))} />}
       {tab === "collectors" && <Collectors />}

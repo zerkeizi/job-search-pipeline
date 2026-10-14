@@ -107,6 +107,8 @@ export function jobDetail(deps: ReviewDeps, id: string) {
     ...summaryOf(deps.db, deps.config.preferences, job),
     description: descriptionOf(deps.db, job),
     scoreReason: job.scoreReason,
+    matches: job.matches ?? [],
+    gaps: job.gaps ?? [],
     postings: deps.db
       .select({ source: postings.source, url: postings.url, location: postings.location, postedAt: postings.postedAt })
       .from(postings)
@@ -176,6 +178,27 @@ export function discardJob(db: Db, id: string, reason: string | null): void {
 export function markApplied(db: Db, id: string, now = new Date()): void {
   getJob(db, id);
   db.update(jobs).set({ status: "applied", appliedAt: now.toISOString() }).where(eq(jobs.id, id)).run();
+}
+
+/**
+ * The tailoring queue: `scored` Jobs in the order `generate` takes them (Preferred Jobs first, then
+ * by score). Those below the threshold are only generated if I ask.
+ */
+export function listQueue(deps: ReviewDeps) {
+  const threshold = deps.config.thresholds.generate;
+  const list = deps.db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.status, "scored"))
+    .all()
+    .map((j) => ({ ...summaryOf(deps.db, deps.config.preferences, j), aboveThreshold: (j.score ?? 0) >= threshold }))
+    .sort(
+      (a, b) =>
+        Number(b.aboveThreshold) - Number(a.aboveThreshold) ||
+        Number(b.preferred) - Number(a.preferred) ||
+        (b.score ?? -1) - (a.score ?? -1),
+    );
+  return { threshold, jobs: list };
 }
 
 /** Applied Jobs, most recent first (read-only in the panel; tracking goes on in my spreadsheet). */

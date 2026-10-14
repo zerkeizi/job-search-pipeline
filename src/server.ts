@@ -12,6 +12,7 @@ import {
   listAnalysis,
   listApplied,
   listGenerated,
+  listQueue,
   markApplied,
   mergeJob,
   pdfPathOf,
@@ -96,6 +97,7 @@ export function createApp(deps: ServerDeps): Hono {
     return c.json({ ok: true });
   });
 
+  app.get("/api/queue", (c) => c.json(listQueue(deps)));
   app.get("/api/analysis", (c) => c.json(listAnalysis(deps)));
   app.post("/api/analysis/:id/merge", (c) => c.json({ mergedInto: mergeJob(deps, c.req.param("id")) }));
   app.post("/api/analysis/:id/keep", (c) => {

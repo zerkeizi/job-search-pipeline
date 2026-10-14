@@ -110,6 +110,8 @@ details summary { cursor: pointer; font-size: 12px; margin: 4px 0; }
 .alert.warn { background: var(--warn-bg); color: var(--warn); }
 
 .muted { color: var(--muted); }
+.small { font-size: 12px; }
+.divider { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: var(--bg); padding: 6px 12px; border-bottom: 1px solid var(--border); }
 fieldset.plain { border: none; margin: 0; padding: 0; min-width: 0; }
 .pad { padding: 16px; }
 .stack { display: flex; flex-direction: column; gap: 16px; }

@@ -36,6 +36,8 @@ export interface Analysis {
 export interface JobDetail extends JobSummary {
   description: string;
   scoreReason: string | null;
+  matches: string[];
+  gaps: string[];
   postings: { source: string; url: string | null; location: string | null; postedAt: string | null }[];
   analysis: Analysis | null;
   coverLetter: string;
@@ -84,6 +86,7 @@ export const api = {
   applied: (id: string) => call("POST", `/api/jobs/${id}/applied`),
   undoApplied: (id: string) => call("POST", `/api/jobs/${id}/undo-applied`),
   localOffice: (id: string, value: boolean | null) => call("PUT", `/api/jobs/${id}/local-office`, { value }),
+  queue: () => call<{ threshold: number; jobs: (JobSummary & { aboveThreshold: boolean })[] }>("GET", "/api/queue"),
   analysis: () => call<AnalysisPair[]>("GET", "/api/analysis"),
   merge: (id: string) => call("POST", `/api/analysis/${id}/merge`),
   keep: (id: string) => call<{ ok: true; queued: boolean }>("POST", `/api/analysis/${id}/keep`),

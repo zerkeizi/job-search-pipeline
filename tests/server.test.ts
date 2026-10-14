@@ -187,6 +187,18 @@ describe("review API", () => {
     expect(db.select().from(jobs).get()!.status).toBe("generated");
   }, 60_000);
 
+  it("lists the queue: above the threshold first (Preferred, then score), then the rest", async () => {
+    const { generated, app } = setup();
+    const low = generated({}, { status: "scored", score: 66 });
+    const high = generated({}, { status: "scored", score: 90 });
+    const preferred = generated({}, { status: "scored", score: 71, localOffice: true, localOfficeSource: "posting", workplace: "hybrid" });
+    generated({}, { status: "generated", score: 95 });
+    const q = (await (await app.request("/api/queue")).json()) as { threshold: number; jobs: { id: string; aboveThreshold: boolean }[] };
+    expect(q.threshold).toBe(config.thresholds.generate);
+    expect(q.jobs.map((j) => j.id)).toEqual([preferred, high, low]);
+    expect(q.jobs.map((j) => j.aboveThreshold)).toEqual([true, true, false]);
+  });
+
   it("reports collector status", async () => {
     const { db, app } = setup();
     markSuccess(db, "gupy", new Date("2026-10-13T10:00:00Z"), 18);
