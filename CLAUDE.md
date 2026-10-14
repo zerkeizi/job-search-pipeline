@@ -85,6 +85,7 @@ collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → p
 │   ├── guard.ts             # checagem anti-invenção
 │   ├── render.ts
 │   ├── usage.ts             # log de tokens, custo equivalente e cota
+│   ├── stats.ts             # jobpipe stats
 │   ├── review.ts            # operações do painel
 │   ├── server.ts            # API hono para o painel
 │   └── cli.ts               # entrypoint
@@ -389,7 +390,7 @@ quota remaining: 5h 79% (resets 19:00) · 7d 95% (resets 18/10 21:00)
 
 **`<YYYY-MM-DD>_collector.log`** — por fonte: quantidade, duração, bloqueios, janela usada; resumo no fim da coleta.
 
-`jobpipe stats` soma os arquivos do mês.
+`jobpipe stats` (`src/stats.ts`) mostra: Jobs por status; Jobs novos e aplicados no mês; chamadas de LLM, tokens e custo equivalente somados dos `*_usage.log` do mês (por etapa); a **última leitura de cota** registrada (a assinatura só informa a cota durante uma chamada, então não existe "cota atual" sem gastar cota; se o horário de reset de uma janela já passou, aparece "reset since"); e, por coletor, a última coleta bem-sucedida, o volume e bloqueios ativos.
 
 ---
 
@@ -402,7 +403,7 @@ pnpm jobpipe generate [--limit 10]                   # tailoring + guard + rende
 pnpm jobpipe run [--force]                           # collect → score → generate
 pnpm jobpipe add <arquivo.txt> [--url <link>]        # vaga manual
 pnpm jobpipe review [--port 4321]                    # build + sobe API e painel em localhost
-pnpm jobpipe stats                                   # vagas por status, tokens/custo equivalente do mês, cota atual, bloqueios
+pnpm jobpipe stats                                   # vagas por status, tokens/custo equivalente do mês, última leitura de cota, coletores
 pnpm jobpipe doctor                                  # checa node, uv, sidecar, playwright, login do claude, ausência de API key
 ```
 

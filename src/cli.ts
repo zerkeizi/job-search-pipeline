@@ -8,6 +8,7 @@ import { openDb } from "./db/index.js";
 import { formatResults, runDoctor } from "./doctor.js";
 import { generate, type GenerateOutcome, pendingJobIds } from "./generate.js";
 import { runScoring } from "./scoring.js";
+import { computeStats, formatStats } from "./stats.js";
 import { TechMatcher } from "./tech.js";
 import { UsageLog } from "./usage.js";
 
@@ -21,16 +22,6 @@ program
     console.log(formatResults(results));
     if (results.some((r) => r.status === "fail")) process.exitCode = 1;
   });
-
-const notYet = (name: string, phase: number) =>
-  program
-    .command(name)
-    .description(`(not implemented yet — phase ${phase})`)
-    .allowUnknownOption()
-    .action(() => {
-      console.error(`${name}: not implemented yet (build phase ${phase})`);
-      process.exitCode = 1;
-    });
 
 function printOutcome(o: GenerateOutcome): void {
   if (o.status === "generated") {
@@ -167,6 +158,9 @@ program
     );
   });
 
-notYet("stats", 7);
+program
+  .command("stats")
+  .description("jobs by status, this month's LLM tokens and equivalent cost, last quota reading, collectors")
+  .action(() => console.log(formatStats(computeStats(openDb()))));
 
 await program.parseAsync();
