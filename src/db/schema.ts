@@ -80,6 +80,8 @@ export const collectorState = sqliteTable("collector_state", {
   source: text("source").primaryKey(),
   lastSuccessAt: text("last_success_at"),
   blockedUntil: text("blocked_until"),
+  /** Postings received in the last successful collection. */
+  lastCount: integer("last_count"),
 });
 
 export type Job = typeof jobs.$inferSelect;

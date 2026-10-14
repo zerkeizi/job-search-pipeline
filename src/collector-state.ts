@@ -22,11 +22,11 @@ export function markBlocked(db: Db, source: string, now: Date): void {
     .run();
 }
 
-export function markSuccess(db: Db, source: string, now: Date): void {
-  const lastSuccessAt = now.toISOString();
+export function markSuccess(db: Db, source: string, now: Date, count: number | null = null): void {
+  const set = { lastSuccessAt: now.toISOString(), lastCount: count };
   db.insert(collectorState)
-    .values({ source, lastSuccessAt })
-    .onConflictDoUpdate({ target: collectorState.source, set: { lastSuccessAt } })
+    .values({ source, ...set })
+    .onConflictDoUpdate({ target: collectorState.source, set })
     .run();
 }
 

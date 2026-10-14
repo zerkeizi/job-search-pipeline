@@ -171,6 +171,7 @@ export async function collectJobspy(db: Db, config: Config, opts: CollectOptions
   });
   if (summary.skipped.length) log(`jobspy skipped (blocked until midnight): ${summary.skipped.join(", ")}`);
   const failed = new Set<JobspySite>();
+  const perSite = new Map<string, number>();
 
   for (const [i, search] of cfg.searches.entries()) {
     if (active.length === 0) break;
@@ -203,7 +204,10 @@ export async function collectJobspy(db: Db, config: Config, opts: CollectOptions
     for (const raw of res.records) {
       const parsed = jobspyRecordSchema.safeParse(raw);
       const posting = parsed.success ? toPosting(parsed.data) : null;
-      if (posting) postingsIn.push(posting);
+      if (posting) {
+        postingsIn.push(posting);
+        perSite.set(posting.source, (perSite.get(posting.source) ?? 0) + 1);
+      }
       else invalid++;
     }
     const stored = ingest(db, postingsIn, config.dedupe, now());
@@ -227,6 +231,6 @@ export async function collectJobspy(db: Db, config: Config, opts: CollectOptions
     active = active.filter((s) => !res.blocked.includes(s));
   }
 
-  for (const site of active) if (!failed.has(site)) markSuccess(db, site, now());
+  for (const site of active) if (!failed.has(site)) markSuccess(db, site, now(), perSite.get(site) ?? 0);
   return summary;
 }

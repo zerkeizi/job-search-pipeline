@@ -85,6 +85,7 @@ collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → p
 │   ├── guard.ts             # checagem anti-invenção
 │   ├── render.ts
 │   ├── usage.ts             # log de tokens, custo equivalente e cota
+│   ├── review.ts            # operações do painel
 │   ├── server.ts            # API hono para o painel
 │   └── cli.ts               # entrypoint
 ├── web/                     # painel de revisão (Vite + React)
@@ -150,7 +151,7 @@ Termos definidos em `GLOSSARY.md`. Resumo:
 | `page_warning` | CV gerado passou de 1 página |
 | `discard_reason`, `notes`, `applied_at` | |
 
-**`collector_state`** — por fonte: `last_success_at`, `blocked_until`.
+**`collector_state`** — por fonte: `last_success_at`, `blocked_until`, `last_count` (Postings da última coleta bem-sucedida).
 
 ### Status
 
@@ -343,6 +344,15 @@ Interface em inglês.
 - **Collectors**: status de cada fonte (última coleta bem-sucedida, bloqueio até quando, último volume).
 - Sem funil, sem taxa de resposta, sem export CSV.
 
+**Implementação:** `src/review.ts` (operações: listar, editar, descartar, aplicar, Local Office, Merge/Keep separate, status dos coletores), `src/server.ts` (rotas Hono em `/api`) e `web/` (React, construído pelo `jobpipe review` em `web/dist`).
+- `jobpipe review [--port 4321]` faz o build do painel e serve painel + API **só em `127.0.0.1`**. Toda requisição que muda estado exige o header `x-jobpipe: 1`; outro site aberto no navegador não consegue enviá-lo sem um preflight de CORS, que o servidor nunca libera.
+- Edição: o painel manda summary, bullets e cover letter; o guard roda antes de salvar. Edição rejeitada não altera nada (HTTP 422, com os erros e a orientação de colocar no `base.yaml` o que for verdade). Edição aceita re-renderiza o PDF, atualiza `analysis.json` (com `edited_at`) e `cover_letter.md`, e põe o Job em `generated` (um Job `blocked` pelo guard pode ser consertado editando).
+- Diff: cada bullet reescrito mostra o original do Base CV e o `why` (casados por `changes_rationale`); bullets do Base CV que ficaram de fora aparecem numa lista para adicionar de volta.
+- Regenerate chama o `generate` (gasta cota; o resumo de uso vai para o log e para o terminal do `review`); uma regeneração por vez.
+- Merge: os Postings passam para o Job existente (que mantém o status), a fonte de origem continua prevalecendo para descrição e link, e `output/<job_id>/` do Job removido é apagado.
+- Collectors: `collector_state.last_count` guarda quantos Postings vieram na última coleta bem-sucedida.
+- Para mexer na interface: `pnpm jobpipe review` em um terminal e `pnpm vite web` em outro (proxy de `/api` para a porta 4321).
+
 ---
 
 ## Chamadas ao LLM (`src/llm.ts`)
@@ -389,7 +399,7 @@ pnpm jobpipe score [--all]                           # pré-filtro + scoring det
 pnpm jobpipe generate [--limit 10]                   # tailoring + guard + render
 pnpm jobpipe run [--force]                           # collect → score → generate
 pnpm jobpipe add <arquivo.txt> [--url <link>]        # vaga manual
-pnpm jobpipe review                                  # sobe API + painel
+pnpm jobpipe review [--port 4321]                    # build + sobe API e painel em localhost
 pnpm jobpipe stats                                   # vagas por status, tokens/custo equivalente do mês, cota atual, bloqueios
 pnpm jobpipe doctor                                  # checa node, uv, sidecar, playwright, login do claude, ausência de API key
 ```

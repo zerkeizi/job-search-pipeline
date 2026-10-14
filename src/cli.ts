@@ -145,7 +145,28 @@ program
     await runGenerate(pendingJobIds(openDb(), config, config.limits.generate_per_run));
   });
 
-notYet("review", 6);
+program
+  .command("review")
+  .description("build the review panel and serve it with its API on localhost")
+  .option("--port <n>", "port", (v) => Number.parseInt(v, 10), 4321)
+  .action(async (opts: { port: number }) => {
+    const { build } = await import("vite");
+    await build({ configFile: "web/vite.config.ts", logLevel: "warn" });
+    const { serve } = await import("@hono/node-server");
+    const { createApp } = await import("./server.js");
+    const app = createApp({
+      db: openDb(),
+      config: loadConfig(),
+      cv: loadBaseCv(),
+      matcher: TechMatcher.load(),
+      outputDir: "output",
+      webDir: "web/dist",
+    });
+    serve({ fetch: app.fetch, port: opts.port, hostname: "127.0.0.1" }, ({ port }) =>
+      console.log(`review panel: http://localhost:${port}  (Ctrl+C to stop)`),
+    );
+  });
+
 notYet("stats", 7);
 
 await program.parseAsync();

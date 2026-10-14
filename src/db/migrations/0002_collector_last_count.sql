@@ -1,0 +1,1 @@
+ALTER TABLE `collector_state` ADD `last_count` integer;

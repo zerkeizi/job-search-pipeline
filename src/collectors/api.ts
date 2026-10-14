@@ -91,7 +91,7 @@ export async function collectApiSources(db: Db, config: Config, opts: ApiCollect
         summary.flagged += stored.flagged;
         if (batch.error) summary.errors.push(`${batch.target}: ${batch.error}`);
       }
-      if (summary.errors.length < targetsOf(config, source)) markSuccess(db, source, now());
+      if (summary.errors.length < targetsOf(config, source)) markSuccess(db, source, now(), got);
       else summary.status = "error";
     } catch (err) {
       if (err instanceof BlockedError) {
