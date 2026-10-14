@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type CompanyBoard, type CompanyRow } from "./api.js";
+import { useDialogs } from "./dialogs.js";
 
 const BOARD_URL: Record<CompanyBoard["ats"], (slug: string) => string> = {
   greenhouse: (s) => `https://boards.greenhouse.io/${s}`,
@@ -13,6 +14,7 @@ export function Companies() {
   const [filter, setFilter] = useState("");
   const [view, setView] = useState<"boards" | "followed" | "all">("boards");
   const [error, setError] = useState<string | null>(null);
+  const dialogs = useDialogs();
 
   const reload = useCallback(async () => setRows(await api.companies()), []);
   useEffect(() => void reload(), [reload]);
@@ -36,17 +38,23 @@ export function Companies() {
     );
   }, [rows, filter, view]);
 
-  const rename = (c: CompanyRow) => {
-    const name = prompt("New name:", c.name);
+  const rename = async (c: CompanyRow) => {
+    const name = await dialogs.prompt("New name:", { initial: c.name, ok: "Rename" });
     if (name && name.trim() !== c.name) void act(() => api.renameCompany(c.id, name));
   };
-  const merge = (c: CompanyRow) => {
-    const target = prompt(`Merge "${c.name}" into which company? Type its exact name:`);
-    if (!target) return;
-    const into = rows.find((r) => r.name.toLowerCase() === target.trim().toLowerCase() && r.id !== c.id);
-    if (!into) return setError(`No other company named "${target}".`);
-    if (confirm(`"${c.name}" and "${into.name}" are the same employer? Its names, boards and jobs move to "${into.name}".`))
-      void act(() => api.mergeCompany(c.id, into.id));
+  const merge = async (c: CompanyRow) => {
+    const others = rows.filter((r) => r.id !== c.id).sort((a, b) => a.name.localeCompare(b.name));
+    const intoId = await dialogs.prompt(`"${c.name}" is the same employer as:`, {
+      ok: "Next",
+      options: others.map((r) => ({ value: r.id, label: r.name })),
+    });
+    const into = others.find((r) => r.id === intoId);
+    if (!into) return;
+    const ok = await dialogs.confirm(`Merge "${c.name}" into "${into.name}"? Its names, boards and jobs move to "${into.name}".`, {
+      ok: "Merge",
+      danger: true,
+    });
+    if (ok) void act(() => api.mergeCompany(c.id, into.id));
   };
 
   return (

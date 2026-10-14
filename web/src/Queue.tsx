@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type GenerateMode, type JobDetail, type JobSummary } from "./api.js";
+import { useDialogs } from "./dialogs.js";
 import { describeMode, GenerateMenu } from "./GenerateMenu.js";
 import { Chips, Facts } from "./JobView.js";
 
@@ -17,6 +18,7 @@ export function Queue({ onCount, version }: { onCount: (n: number) => void; vers
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [batch, setBatch] = useState<{ done: number; total: number; current: string } | null>(null);
   const [batchResult, setBatchResult] = useState<{ kind: "good" | "bad"; text: string; details: string[] } | null>(null);
+  const dialogs = useDialogs();
 
   const reload = useCallback(async () => {
     const q = await api.queue();
@@ -39,7 +41,11 @@ export function Queue({ onCount, version }: { onCount: (n: number) => void; vers
   /** One Job after the other, like `jobpipe generate`; stops when the subscription quota runs out. */
   const generateSelected = async (mode: GenerateMode) => {
     const list = jobs.filter((j) => checked.has(j.id));
-    if (!confirm(`Generate ${describeMode(mode)} for ${list.length} job(s)? One tailoring call each (~30s), using subscription quota.`)) return;
+    const ok = await dialogs.confirm(
+      `Generate ${describeMode(mode)} for ${list.length} job(s)? One tailoring call each (~30s), using subscription quota.`,
+      { ok: `Generate ${list.length}` },
+    );
+    if (!ok) return;
     setBatchResult(null);
     const failed: string[] = [];
     let generated = 0;
@@ -145,6 +151,7 @@ function QueuedView({ id, onChanged }: { id: string; onChanged: () => Promise<vo
   const [job, setJob] = useState<JobDetail | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "good" | "bad"; text: string; details?: string[] } | null>(null);
+  const dialogs = useDialogs();
   const load = useCallback(async () => setJob(await api.job(id)), [id]);
   useEffect(() => void load(), [load]);
   if (!job) return <p className="muted pad">Loading…</p>;
@@ -161,12 +168,15 @@ function QueuedView({ id, onChanged }: { id: string; onChanged: () => Promise<vo
     }
   };
 
-  const generate = (mode: GenerateMode) => {
-    if (!confirm(`Generate ${describeMode(mode)} for ${job.company} now? It uses subscription quota (one tailoring call).`)) return;
+  const generate = async (mode: GenerateMode) => {
+    const ok = await dialogs.confirm(`Generate ${describeMode(mode)} for ${job.company} now? It uses subscription quota (one tailoring call).`, {
+      ok: "Generate",
+    });
+    if (!ok) return;
     void run("generate", async () => {
       const r = await api.generate(id, mode);
       if (r.status === "generated") {
-        alert(`Generated ${describeMode(mode)} — it is now in the Generated tab.`);
+        await dialogs.alert(`Generated ${describeMode(mode)} — it is now in the Generated tab.`);
         await onChanged();
       } else if (r.status === "quota_exhausted")
         setMessage({ kind: "bad", text: "Subscription quota exhausted — try again after the reset." });
@@ -177,17 +187,17 @@ function QueuedView({ id, onChanged }: { id: string; onChanged: () => Promise<vo
     });
   };
 
-  const applied = () => {
-    if (!confirm(`Mark ${job.company} as applied without generating anything here?`)) return;
+  const applied = async () => {
+    if (!(await dialogs.confirm(`Mark ${job.company} as applied without generating anything here?`, { ok: "Mark as applied" }))) return;
     void run("applied", async () => {
       await api.applied(id);
-      alert("Marked as applied — it is now in the Applied tab.");
+      await dialogs.alert("Marked as applied — it is now in the Applied tab.");
       await onChanged();
     });
   };
 
-  const discard = () => {
-    const reason = prompt("Discard this job? Optional reason:");
+  const discard = async () => {
+    const reason = await dialogs.prompt("Discard this job? Optional reason:", { ok: "Discard" });
     if (reason === null) return;
     void run("discard", async () => {
       await api.discard(id, reason);

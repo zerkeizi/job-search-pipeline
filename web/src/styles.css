@@ -139,3 +139,8 @@ th { font-size: 12px; color: var(--muted); font-weight: 500; }
 .form-grid input { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--text); font-size: 14px; }
 .form-grid textarea, .form-grid select { color: var(--text); font-size: 14px; }
 header .add { margin-left: auto; }
+.small-dialog { width: min(460px, 100%); }
+.dialog-message { margin: 0; white-space: pre-wrap; }
+.dialog-input { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--text); font-size: 14px; }
+.small-dialog select { padding: 6px 8px; font-size: 14px; }
+button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }

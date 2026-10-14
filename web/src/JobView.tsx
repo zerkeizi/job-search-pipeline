@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type GenerateMode, type JobDetail } from "./api.js";
+import { useDialogs } from "./dialogs.js";
 import { describeMode, GenerateMenu } from "./GenerateMenu.js";
 
 interface Draft {
@@ -20,6 +21,7 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "good" | "bad" | "warn"; text: string; details?: string[] } | null>(null);
   const [pdfVersion, setPdfVersion] = useState(0);
+  const dialogs = useDialogs();
 
   const load = useCallback(async () => {
     const j = await api.job(id);
@@ -64,14 +66,13 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
       });
     });
 
-  const regenerate = (mode: GenerateMode) => {
+  const regenerate = async (mode: GenerateMode) => {
     const replaced = (mode !== "cover_letter" && job.parts.cv) || (mode !== "cv" && job.parts.coverLetter);
-    if (
-      !confirm(
-        `Generate ${describeMode(mode)}?${replaced ? " Your edits to what is regenerated will be lost." : ""} It uses subscription quota.`,
-      )
-    )
-      return;
+    const ok = await dialogs.confirm(
+      `Generate ${describeMode(mode)}?${replaced ? " Your edits to what is regenerated will be lost." : ""} It uses subscription quota.`,
+      { ok: "Generate" },
+    );
+    if (!ok) return;
     void run("regenerate", async () => {
       const r = await api.generate(id, mode);
       await load();
@@ -84,8 +85,8 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
     });
   };
 
-  const discard = () => {
-    const reason = prompt("Discard this job? Optional reason:");
+  const discard = async () => {
+    const reason = await dialogs.prompt("Discard this job? Optional reason:", { ok: "Discard" });
     if (reason === null) return;
     void run("discard", async () => {
       await api.discard(id, reason);
@@ -93,16 +94,16 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
     });
   };
 
-  const undoApplied = () => {
-    if (!confirm("Move this job back to review? Use this only if you marked it as applied by mistake.")) return;
+  const undoApplied = async () => {
+    if (!(await dialogs.confirm("Move this job back to review? Use this only if you marked it as applied by mistake.", { ok: "Move back" }))) return;
     void run("undo", async () => {
       await api.undoApplied(id);
       await onChanged();
     });
   };
 
-  const applied = () => {
-    if (!confirm("Mark as applied? This is the end of the pipeline for this job.")) return;
+  const applied = async () => {
+    if (!(await dialogs.confirm("Mark as applied? This is the end of the pipeline for this job.", { ok: "Mark as applied" }))) return;
     void run("applied", async () => {
       await api.applied(id);
       await onChanged();

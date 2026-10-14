@@ -83,16 +83,36 @@ describe("review panel", () => {
 
   it("generates the selected jobs one after the other", async () => {
     const page = await browser.newPage();
-    page.on("dialog", (d) => void d.accept());
+    // Native confirm()/prompt() can be switched off by the browser: the panel must never use them.
+    const native: string[] = [];
+    page.on("dialog", (d) => {
+      native.push(d.message());
+      void d.dismiss();
+    });
     await page.goto(base);
     await page.getByRole("button", { name: /^Queue/ }).click();
     await page.locator(".item", { hasText: "Hand Picked Co" }).waitFor();
     await page.getByRole("button", { name: "Select manual" }).click();
     await page.getByRole("button", { name: /Generate selected \(1\)/ }).click();
     await page.getByRole("button", { name: "Cover letter only" }).click();
+    await page.getByRole("dialog").getByText(/One tailoring call each/).waitFor();
+    await page.getByRole("dialog").getByRole("button", { name: "Generate 1" }).click();
     await page.getByText("Generated 1 of 1").waitFor({ timeout: 30_000 });
+    expect(native).toEqual([]);
     await page.getByRole("button", { name: /^Generated/ }).click();
     await page.locator(".item", { hasText: "Hand Picked Co" }).waitFor();
+
+    // Discard asks for a reason in the in-page dialog; Escape cancels, Enter confirms.
+    await page.locator(".item", { hasText: "Hand Picked Co" }).click();
+    await page.locator(".job h2", { hasText: "Hand Picked Co" }).waitFor();
+    await page.getByRole("button", { name: "Discard" }).click();
+    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").waitFor({ state: "detached" });
+    await page.getByRole("button", { name: "Discard" }).click();
+    await page.getByRole("dialog").locator("input").fill("not for me");
+    await page.keyboard.press("Enter");
+    await page.locator(".item", { hasText: "Hand Picked Co" }).waitFor({ state: "detached" });
+    expect(native).toEqual([]);
   }, 60_000);
 
   it("does not keep calling the API while idle on any tab", async () => {
