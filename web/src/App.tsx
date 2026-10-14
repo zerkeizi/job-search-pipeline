@@ -1,14 +1,26 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { type AnalysisPair, api, type CollectorRow, type JobSummary } from "./api.js";
 import { JobView } from "./JobView.js";
 import { Companies } from "./Companies.js";
 import { Queue } from "./Queue.js";
 
 type Tab = "generated" | "queue" | "applied" | "analysis" | "companies" | "collectors";
+type Counts = { generated: number; queue: number; applied: number; analysis: number };
 
 export function App() {
   const [tab, setTab] = useState<Tab>("generated");
-  const [counts, setCounts] = useState({ generated: 0, queue: 0, applied: 0, analysis: 0 });
+  const [counts, setCounts] = useState<Counts>({ generated: 0, queue: 0, applied: 0, analysis: 0 });
+
+  // One stable setter per tab. Returning the same state when the number didn't change makes
+  // React skip the re-render, so a tab reporting its count can never trigger itself again.
+  const countSetter = useCallback(
+    (key: keyof Counts) => (n: number) => setCounts((c) => (c[key] === n ? c : { ...c, [key]: n })),
+    [],
+  );
+  const onGenerated = useMemo(() => countSetter("generated"), [countSetter]);
+  const onQueue = useMemo(() => countSetter("queue"), [countSetter]);
+  const onApplied = useMemo(() => countSetter("applied"), [countSetter]);
+  const onAnalysis = useMemo(() => countSetter("analysis"), [countSetter]);
   useEffect(() => {
     void Promise.all([api.jobs("review"), api.queue(), api.jobs("applied"), api.analysis()]).then(([g, q, a, an]) =>
       setCounts({ generated: g.length, queue: q.jobs.length, applied: a.length, analysis: an.length }),
@@ -39,10 +51,10 @@ export function App() {
           </button>
         </nav>
       </header>
-      {tab === "generated" && <Generated key="review" view="review" onCount={(n) => setCounts((c) => ({ ...c, generated: n }))} />}
-      {tab === "queue" && <Queue onCount={(n) => setCounts((c) => ({ ...c, queue: n }))} />}
-      {tab === "applied" && <Generated key="applied" view="applied" onCount={(n) => setCounts((c) => ({ ...c, applied: n }))} />}
-      {tab === "analysis" && <AnalysisTab onCount={(n) => setCounts((c) => ({ ...c, analysis: n }))} />}
+      {tab === "generated" && <Generated key="review" view="review" onCount={onGenerated} />}
+      {tab === "queue" && <Queue onCount={onQueue} />}
+      {tab === "applied" && <Generated key="applied" view="applied" onCount={onApplied} />}
+      {tab === "analysis" && <AnalysisTab onCount={onAnalysis} />}
       {tab === "companies" && <Companies />}
       {tab === "collectors" && <Collectors />}
     </div>
