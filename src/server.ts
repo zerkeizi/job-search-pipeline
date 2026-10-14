@@ -10,6 +10,7 @@ import {
   jobDetail,
   keepSeparate,
   listAnalysis,
+  listApplied,
   listGenerated,
   markApplied,
   mergeJob,
@@ -18,6 +19,7 @@ import {
   type ReviewDeps,
   saveEdits,
   setLocalOffice,
+  undoApplied,
 } from "./review.js";
 import { UsageLog } from "./usage.js";
 
@@ -52,7 +54,7 @@ export function createApp(deps: ServerDeps): Hono {
     await next();
   });
 
-  app.get("/api/jobs", (c) => c.json(listGenerated(deps)));
+  app.get("/api/jobs", (c) => c.json(c.req.query("view") === "applied" ? listApplied(deps) : listGenerated(deps)));
   app.get("/api/jobs/:id", (c) => c.json(jobDetail(deps, c.req.param("id"))));
   app.get("/api/jobs/:id/cv.pdf", (c) => {
     const path = pdfPathOf(deps.outputDir, c.req.param("id"));
@@ -84,6 +86,10 @@ export function createApp(deps: ServerDeps): Hono {
     markApplied(deps.db, c.req.param("id"));
     return c.json({ ok: true });
   });
+  app.post("/api/jobs/:id/undo-applied", (c) => {
+    undoApplied(deps.db, c.req.param("id"));
+    return c.json({ ok: true });
+  });
   app.put("/api/jobs/:id/local-office", async (c) => {
     const { value } = z.object({ value: z.boolean().nullable() }).parse(await c.req.json());
     setLocalOffice(deps, c.req.param("id"), value);
@@ -94,7 +100,7 @@ export function createApp(deps: ServerDeps): Hono {
   app.post("/api/analysis/:id/merge", (c) => c.json({ mergedInto: mergeJob(deps, c.req.param("id")) }));
   app.post("/api/analysis/:id/keep", (c) => {
     keepSeparate(deps.db, c.req.param("id"));
-    return c.json({ ok: true });
+    return c.json({ ok: true, queued: true });
   });
 
   app.get("/api/collectors", (c) => c.json(collectorStatus(deps)));

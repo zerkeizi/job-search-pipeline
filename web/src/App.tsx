@@ -2,11 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import { type AnalysisPair, api, type CollectorRow, type JobSummary } from "./api.js";
 import { JobView } from "./JobView.js";
 
-type Tab = "generated" | "analysis" | "collectors";
+type Tab = "generated" | "applied" | "analysis" | "collectors";
 
 export function App() {
   const [tab, setTab] = useState<Tab>("generated");
-  const [counts, setCounts] = useState({ generated: 0, analysis: 0 });
+  const [counts, setCounts] = useState({ generated: 0, applied: 0, analysis: 0 });
+  useEffect(() => {
+    void Promise.all([api.jobs("review"), api.jobs("applied"), api.analysis()]).then(([g, a, an]) =>
+      setCounts({ generated: g.length, applied: a.length, analysis: an.length }),
+    );
+  }, []);
   return (
     <div className="app">
       <header>
@@ -14,6 +19,9 @@ export function App() {
         <nav>
           <button className={tab === "generated" ? "active" : ""} onClick={() => setTab("generated")}>
             Generated <span className="count">{counts.generated}</span>
+          </button>
+          <button className={tab === "applied" ? "active" : ""} onClick={() => setTab("applied")}>
+            Applied <span className="count">{counts.applied}</span>
           </button>
           <button className={tab === "analysis" ? "active" : ""} onClick={() => setTab("analysis")}>
             Analysis <span className="count">{counts.analysis}</span>
@@ -23,25 +31,26 @@ export function App() {
           </button>
         </nav>
       </header>
-      {tab === "generated" && <Generated onCount={(n) => setCounts((c) => ({ ...c, generated: n }))} />}
+      {tab === "generated" && <Generated key="review" view="review" onCount={(n) => setCounts((c) => ({ ...c, generated: n }))} />}
+      {tab === "applied" && <Generated key="applied" view="applied" onCount={(n) => setCounts((c) => ({ ...c, applied: n }))} />}
       {tab === "analysis" && <AnalysisTab onCount={(n) => setCounts((c) => ({ ...c, analysis: n }))} />}
       {tab === "collectors" && <Collectors />}
     </div>
   );
 }
 
-function Generated({ onCount }: { onCount: (n: number) => void }) {
+function Generated({ view, onCount }: { view: "review" | "applied"; onCount: (n: number) => void }) {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [source, setSource] = useState("");
   const [preferredOnly, setPreferredOnly] = useState(false);
 
   const reload = useCallback(async () => {
-    const list = await api.jobs();
+    const list = await api.jobs(view);
     setJobs(list);
     onCount(list.length);
     setSelected((s) => (s && list.some((j) => j.id === s) ? s : (list[0]?.id ?? null)));
-  }, [onCount]);
+  }, [onCount, view]);
   useEffect(() => void reload(), [reload]);
 
   const sources = [...new Set(jobs.flatMap((j) => j.sources))].sort();
@@ -61,12 +70,17 @@ function Generated({ onCount }: { onCount: (n: number) => void }) {
             <input type="checkbox" checked={preferredOnly} onChange={(e) => setPreferredOnly(e.target.checked)} /> Preferred only
           </label>
         </div>
-        {visible.length === 0 && <p className="muted pad">Nothing to review. Run <code>pnpm jobpipe run</code>.</p>}
+        {visible.length === 0 &&
+          (view === "applied" ? (
+            <p className="muted pad">No applications yet.</p>
+          ) : (
+            <p className="muted pad">Nothing to review. Run <code>pnpm jobpipe run</code>.</p>
+          ))}
         {visible.map((j) => (
           <button key={j.id} className={`item ${selected === j.id ? "selected" : ""}`} onClick={() => setSelected(j.id)}>
             <div className="item-top">
               <strong>{j.company}</strong>
-              <span className="score">{j.score ?? "manual"}</span>
+              <span className="score">{view === "applied" && j.appliedAt ? j.appliedAt.slice(0, 10) : (j.score ?? "manual")}</span>
             </div>
             <div className="item-title">{j.title}</div>
             <div className="badges">
@@ -81,7 +95,9 @@ function Generated({ onCount }: { onCount: (n: number) => void }) {
           </button>
         ))}
       </aside>
-      <section className="detail">{selected ? <JobView key={selected} id={selected} onChanged={reload} /> : null}</section>
+      <section className="detail">
+        {selected ? <JobView key={selected} id={selected} readOnly={view === "applied"} onChanged={reload} /> : null}
+      </section>
     </main>
   );
 }
@@ -89,6 +105,7 @@ function Generated({ onCount }: { onCount: (n: number) => void }) {
 function AnalysisTab({ onCount }: { onCount: (n: number) => void }) {
   const [pairs, setPairs] = useState<AnalysisPair[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const reload = useCallback(async () => {
     const list = await api.analysis();
     setPairs(list);
@@ -96,20 +113,23 @@ function AnalysisTab({ onCount }: { onCount: (n: number) => void }) {
   }, [onCount]);
   useEffect(() => void reload(), [reload]);
 
-  const act = async (fn: () => Promise<unknown>) => {
+  const act = async (fn: () => Promise<unknown>, done: string) => {
     setError(null);
+    setNotice(null);
     try {
       await fn();
+      setNotice(done);
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  if (pairs.length === 0) return <p className="muted pad">No possible duplicates waiting for a decision.</p>;
   return (
     <main className="pad stack">
+      {notice && <div className="alert good">{notice}</div>}
       {error && <div className="alert bad">{error}</div>}
+      {pairs.length === 0 && <p className="muted">No possible duplicates waiting for a decision.</p>}
       {pairs.map(({ job, candidate, similarity }) => (
         <article key={job.id} className="card">
           <div className="row spread">
@@ -117,10 +137,23 @@ function AnalysisTab({ onCount }: { onCount: (n: number) => void }) {
               Possible duplicate — description similarity {similarity === null ? "?" : `${Math.round(similarity * 100)}%`}
             </h3>
             <div className="row">
-              <button onClick={() => act(() => api.merge(job.id))} disabled={!candidate}>
+              <button
+                onClick={() => act(() => api.merge(job.id), `Merged “${job.title}” into the existing job (${candidate?.status}); its postings now belong to it.`)}
+                disabled={!candidate}
+              >
                 Merge
               </button>
-              <button onClick={() => act(() => api.keep(job.id))}>Keep separate</button>
+              <button
+                onClick={() =>
+                  act(
+                    () => api.keep(job.id),
+                    `Kept separate. “${job.title}” (score ${job.score}) is now queued for tailoring and will appear in Generated after you run pnpm jobpipe generate (uses quota).` +
+                      (candidate ? ` The other job stays as it was (${candidate.status}, score ${candidate.score ?? "–"}).` : ""),
+                  )
+                }
+              >
+                Keep separate
+              </button>
             </div>
           </div>
           <div className="columns">

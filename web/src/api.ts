@@ -17,6 +17,7 @@ export interface JobSummary {
   pageWarning: boolean;
   guardErrors: string[];
   firstSeenAt: string;
+  appliedAt: string | null;
 }
 
 export interface Analysis {
@@ -74,16 +75,17 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const api = {
-  jobs: () => call<JobSummary[]>("GET", "/api/jobs"),
+  jobs: (view: "review" | "applied") => call<JobSummary[]>("GET", `/api/jobs${view === "applied" ? "?view=applied" : ""}`),
   job: (id: string) => call<JobDetail>("GET", `/api/jobs/${id}`),
   saveEdits: (id: string, edits: { summary: string; bullets: string[][]; coverLetter: string }) =>
     call<{ warnings: string[]; scale: number; pageWarning: boolean }>("PUT", `/api/jobs/${id}/edits`, edits),
   regenerate: (id: string) => call<{ status: string; errors?: string[] }>("POST", `/api/jobs/${id}/regenerate`),
   discard: (id: string, reason: string | null) => call("POST", `/api/jobs/${id}/discard`, { reason }),
   applied: (id: string) => call("POST", `/api/jobs/${id}/applied`),
+  undoApplied: (id: string) => call("POST", `/api/jobs/${id}/undo-applied`),
   localOffice: (id: string, value: boolean | null) => call("PUT", `/api/jobs/${id}/local-office`, { value }),
   analysis: () => call<AnalysisPair[]>("GET", "/api/analysis"),
   merge: (id: string) => call("POST", `/api/analysis/${id}/merge`),
-  keep: (id: string) => call("POST", `/api/analysis/${id}/keep`),
+  keep: (id: string) => call<{ ok: true; queued: boolean }>("POST", `/api/analysis/${id}/keep`),
   collectors: () => call<CollectorRow[]>("GET", "/api/collectors"),
 };

@@ -340,7 +340,8 @@ Interface em inglês.
 - **Generated**: lista de Jobs `generated` (e `blocked`), ordenados primeiro Preferred Jobs, depois por score, com filtro por fonte e por Preferred. Cada Job mostra `city`, `workplace`, `office_days` e Local Office (com a origem), e permite corrigir Local Office à mão. Para cada um: descrição à esquerda; à direita, preview do PDF, **diff** bullet a bullet (original vs reescrito, com o `why`), keywords, matches, Gaps, avisos do guard/página e cover letter editável.
   - Editar summary/bullets inline e re-renderizar (edições passam pelo guard).
   - Botões: **Open apply link**, **Copy cover letter**, **Regenerate** (com confirmação: descarta edições), **Discard** (motivo opcional), **Mark as applied** (`applied` + `applied_at`).
-- **Analysis**: o Job e o candidato a duplicata lado a lado (empresa, título, datas, descrições, similaridade). Botões **Merge** e **Keep separate**.
+- **Applied**: Jobs `applied`, do mais recente para o mais antigo, só leitura (CV, cover letter, descrição). Botão **Undo applied** (com confirmação) para um clique por engano: volta para `generated`.
+- **Analysis**: o Job e o candidato a duplicata lado a lado (empresa, título, datas, descrições, similaridade). Botões **Merge** e **Keep separate**. Keep separate não gera nada na hora: o Job volta para `scored` (fila do tailoring, já que está acima do limiar) e aparece em Generated depois do próximo `jobpipe generate`; o painel avisa isso. O Job existente não muda.
 - **Collectors**: status de cada fonte (última coleta bem-sucedida, bloqueio até quando, último volume).
 - Sem funil, sem taxa de resposta, sem export CSV.
 

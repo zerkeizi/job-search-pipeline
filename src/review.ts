@@ -86,6 +86,7 @@ const summaryOf = (db: Db, prefs: Config["preferences"], job: Job) => ({
   pageWarning: job.pageWarning,
   guardErrors: job.guardErrors ?? [],
   firstSeenAt: job.firstSeenAt,
+  appliedAt: job.appliedAt,
 });
 
 export type JobSummary = ReturnType<typeof summaryOf>;
@@ -175,6 +176,24 @@ export function discardJob(db: Db, id: string, reason: string | null): void {
 export function markApplied(db: Db, id: string, now = new Date()): void {
   getJob(db, id);
   db.update(jobs).set({ status: "applied", appliedAt: now.toISOString() }).where(eq(jobs.id, id)).run();
+}
+
+/** Applied Jobs, most recent first (read-only in the panel; tracking goes on in my spreadsheet). */
+export function listApplied(deps: ReviewDeps): JobSummary[] {
+  return deps.db
+    .select()
+    .from(jobs)
+    .where(eq(jobs.status, "applied"))
+    .all()
+    .map((j) => summaryOf(deps.db, deps.config.preferences, j))
+    .sort((a, b) => (b.appliedAt ?? "").localeCompare(a.appliedAt ?? ""));
+}
+
+/** Undo a mistaken "Mark as applied": back to review. */
+export function undoApplied(db: Db, id: string): void {
+  const job = getJob(db, id);
+  if (job.status !== "applied") throw new ReviewError(`job ${id} is not applied`, 409);
+  db.update(jobs).set({ status: "generated", appliedAt: null }).where(eq(jobs.id, id)).run();
 }
 
 /** My Local Office correction (`manual` prevails); null clears it and lets the rules decide again. */

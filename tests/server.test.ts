@@ -128,11 +128,19 @@ describe("review API", () => {
     await send("POST", `/api/jobs/${b}/applied`);
     expect(job(b)!.status).toBe("applied");
     expect(job(b)!.appliedAt).toBeTruthy();
+    const applied = (await (await send("GET", "/api/jobs?view=applied")).json()) as { id: string }[];
+    expect(applied.map((j) => j.id)).toEqual([b]);
+    const review = (await (await send("GET", "/api/jobs")).json()) as { id: string }[];
+    expect(review.map((j) => j.id)).not.toContain(b);
 
     await send("PUT", `/api/jobs/${b}/local-office`, { value: true });
     expect(job(b)).toMatchObject({ localOffice: true, localOfficeSource: "manual" });
     await send("PUT", `/api/jobs/${b}/local-office`, { value: null });
     expect(job(b)).toMatchObject({ localOffice: false, localOfficeSource: null });
+
+    await send("POST", `/api/jobs/${b}/undo-applied`);
+    expect(job(b)).toMatchObject({ status: "generated", appliedAt: null });
+    expect((await send("POST", `/api/jobs/${b}/undo-applied`)).status).toBe(409);
   });
 
   it("merges a possible duplicate into the existing Job, which keeps its status", async () => {

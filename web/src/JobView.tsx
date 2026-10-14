@@ -13,7 +13,7 @@ const draftOf = (job: JobDetail): Draft => ({
   coverLetter: job.coverLetter,
 });
 
-export function JobView({ id, onChanged }: { id: string; onChanged: () => Promise<void> }) {
+export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boolean; onChanged: () => Promise<void> }) {
   const [job, setJob] = useState<JobDetail | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -64,7 +64,8 @@ export function JobView({ id, onChanged }: { id: string; onChanged: () => Promis
       setPdfVersion((v) => v + 1);
       await onChanged();
       if (r.status === "generated") setMessage({ kind: "good", text: "Regenerated." });
-      else if (r.status === "quota_exhausted") setMessage({ kind: "bad", text: "Subscription quota exhausted — try again after the reset." });
+      else if (r.status === "quota_exhausted")
+        setMessage({ kind: "bad", text: "Subscription quota exhausted — try again after the reset." });
       else setMessage({ kind: "bad", text: "Regeneration was blocked by the guard.", details: r.errors });
     });
   };
@@ -74,6 +75,14 @@ export function JobView({ id, onChanged }: { id: string; onChanged: () => Promis
     if (reason === null) return;
     void run("discard", async () => {
       await api.discard(id, reason);
+      await onChanged();
+    });
+  };
+
+  const undoApplied = () => {
+    if (!confirm("Move this job back to review? Use this only if you marked it as applied by mistake.")) return;
+    void run("undo", async () => {
+      await api.undoApplied(id);
       await onChanged();
     });
   };
@@ -99,6 +108,7 @@ export function JobView({ id, onChanged }: { id: string; onChanged: () => Promis
             {job.company} — {job.title}
           </h2>
           <div className="muted">
+            {job.appliedAt ? `applied on ${new Date(job.appliedAt).toLocaleDateString()} · ` : ""}
             score {job.score ?? "manual"}
             {job.scoreReason ? ` · ${job.scoreReason}` : ""}
           </div>
@@ -110,15 +120,23 @@ export function JobView({ id, onChanged }: { id: string; onChanged: () => Promis
           <button onClick={() => run("copy", () => navigator.clipboard.writeText(draft.coverLetter), "Cover letter copied.")}>
             Copy cover letter
           </button>
-          <button disabled={busy !== null} onClick={regenerate}>
-            {busy === "regenerate" ? "Regenerating…" : "Regenerate"}
-          </button>
-          <button disabled={busy !== null} onClick={discard}>
-            Discard
-          </button>
-          <button className="primary" disabled={busy !== null} onClick={applied}>
-            Mark as applied
-          </button>
+          {readOnly ? (
+            <button disabled={busy !== null} onClick={undoApplied}>
+              Undo applied
+            </button>
+          ) : (
+            <>
+              <button disabled={busy !== null} onClick={regenerate}>
+                {busy === "regenerate" ? "Regenerating…" : "Regenerate"}
+              </button>
+              <button disabled={busy !== null} onClick={discard}>
+                Discard
+              </button>
+              <button className="primary" disabled={busy !== null} onClick={applied}>
+                Mark as applied
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -148,7 +166,16 @@ export function JobView({ id, onChanged }: { id: string; onChanged: () => Promis
 
       <div className="columns">
         <div className="col">
-          <Facts job={job} onChange={(v) => run("office", async () => { await api.localOffice(id, v); await load(); await onChanged(); })} />
+          <Facts
+            job={job}
+            onChange={(v) =>
+              run("office", async () => {
+                await api.localOffice(id, v);
+                await load();
+                await onChanged();
+              })
+            }
+          />
           <h3>Description</h3>
           <pre className="description">{job.description}</pre>
         </div>
@@ -172,79 +199,90 @@ export function JobView({ id, onChanged }: { id: string; onChanged: () => Promis
             </>
           )}
 
-          {job.hasPdf && (
-            <>
-              <h3>CV preview{a?.render && a.render.scale < 1 ? ` (scale ${a.render.scale})` : ""}</h3>
-              <iframe className="pdf" title="CV" src={`/api/jobs/${id}/cv.pdf?v=${pdfVersion}`} />
-            </>
-          )}
+          <fieldset className="plain" disabled={readOnly}>
+            {job.hasPdf && (
+              <>
+                <h3>CV preview{a?.render && a.render.scale < 1 ? ` (scale ${a.render.scale})` : ""}</h3>
+                <iframe className="pdf" title="CV" src={`/api/jobs/${id}/cv.pdf?v=${pdfVersion}`} />
+              </>
+            )}
 
-          <h3>Summary</h3>
-          <textarea rows={5} value={draft.summary} onChange={(e) => setDraft({ ...draft, summary: e.target.value })} />
-          <Original text={job.base.summary} why={rationale(draft.summary)?.why} />
+            <h3>Summary</h3>
+            <textarea rows={5} value={draft.summary} onChange={(e) => setDraft({ ...draft, summary: e.target.value })} />
+            <Original text={job.base.summary} why={rationale(draft.summary)?.why} />
 
-          {job.base.experience.map((exp, ci) => {
-            const used = new Set(draft.bullets[ci]!.map((b) => rationale(b)?.original.trim() ?? b.trim()));
-            const unused = exp.bullets.filter((b) => !used.has(b.trim()));
-            return (
-              <div key={exp.company} className="company">
-                <h3>
-                  {exp.company} <span className="muted">· {exp.role}</span>
-                </h3>
-                {draft.bullets[ci]!.map((b, bi) => {
-                  const r = rationale(b);
-                  return (
-                    <div key={bi} className="bullet">
-                      <div className="row">
-                        <textarea
-                          rows={2}
-                          value={b}
-                          onChange={(e) => {
-                            const bullets = draft.bullets.map((list, i) => (i === ci ? list.map((x, j) => (j === bi ? e.target.value : x)) : list));
-                            setDraft({ ...draft, bullets });
-                          }}
-                        />
-                        <button
-                          className="ghost"
-                          title="Remove bullet"
-                          onClick={() => setDraft({ ...draft, bullets: draft.bullets.map((list, i) => (i === ci ? list.filter((_, j) => j !== bi) : list)) })}
-                        >
-                          ×
-                        </button>
+            {job.base.experience.map((exp, ci) => {
+              const used = new Set(draft.bullets[ci]!.map((b) => rationale(b)?.original.trim() ?? b.trim()));
+              const unused = exp.bullets.filter((b) => !used.has(b.trim()));
+              return (
+                <div key={exp.company} className="company">
+                  <h3>
+                    {exp.company} <span className="muted">· {exp.role}</span>
+                  </h3>
+                  {draft.bullets[ci]!.map((b, bi) => {
+                    const r = rationale(b);
+                    return (
+                      <div key={bi} className="bullet">
+                        <div className="row">
+                          <textarea
+                            rows={2}
+                            value={b}
+                            onChange={(e) => {
+                              const bullets = draft.bullets.map((list, i) =>
+                                i === ci ? list.map((x, j) => (j === bi ? e.target.value : x)) : list,
+                              );
+                              setDraft({ ...draft, bullets });
+                            }}
+                          />
+                          <button
+                            className="ghost"
+                            title="Remove bullet"
+                            onClick={() =>
+                              setDraft({
+                                ...draft,
+                                bullets: draft.bullets.map((list, i) => (i === ci ? list.filter((_, j) => j !== bi) : list)),
+                              })
+                            }
+                          >
+                            ×
+                          </button>
+                        </div>
+                        {r && r.original.trim() !== b.trim() && <Original text={r.original} why={r.why} />}
                       </div>
-                      {r && r.original.trim() !== b.trim() && <Original text={r.original} why={r.why} />}
-                    </div>
-                  );
-                })}
-                {unused.length > 0 && (
-                  <details>
-                    <summary className="muted">{unused.length} Base CV bullet(s) not used — click to add back</summary>
-                    {unused.map((u) => (
-                      <button
-                        key={u}
-                        className="unused"
-                        onClick={() => setDraft({ ...draft, bullets: draft.bullets.map((list, i) => (i === ci ? [...list, u] : list)) })}
-                      >
-                        + {u}
-                      </button>
-                    ))}
-                  </details>
-                )}
-              </div>
-            );
-          })}
+                    );
+                  })}
+                  {unused.length > 0 && (
+                    <details>
+                      <summary className="muted">{unused.length} Base CV bullet(s) not used — click to add back</summary>
+                      {unused.map((u) => (
+                        <button
+                          key={u}
+                          className="unused"
+                          onClick={() => setDraft({ ...draft, bullets: draft.bullets.map((list, i) => (i === ci ? [...list, u] : list)) })}
+                        >
+                          + {u}
+                        </button>
+                      ))}
+                    </details>
+                  )}
+                </div>
+              );
+            })}
 
-          <h3>Cover letter</h3>
-          <textarea rows={16} value={draft.coverLetter} onChange={(e) => setDraft({ ...draft, coverLetter: e.target.value })} />
+            <h3>Cover letter</h3>
+            <textarea rows={16} value={draft.coverLetter} onChange={(e) => setDraft({ ...draft, coverLetter: e.target.value })} />
+          </fieldset>
 
-          <div className="row sticky">
-            <button className="primary" disabled={!dirty || busy !== null || !a} onClick={save}>
-              {busy === "save" ? "Checking and rendering…" : "Save edits (guard + re-render)"}
-            </button>
-            <button disabled={!dirty || busy !== null} onClick={() => setDraft(draftOf(job))}>
-              Undo changes
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="row sticky">
+              <button className="primary" disabled={!dirty || busy !== null || !a} onClick={save}>
+                {busy === "save" ? "Checking and rendering…" : "Save edits (guard + re-render)"}
+              </button>
+              <button disabled={!dirty || busy !== null} onClick={() => setDraft(draftOf(job))}>
+                Undo changes
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
