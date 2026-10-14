@@ -3,13 +3,20 @@ import { api, type GenerateMode, type JobDetail, type JobSummary } from "./api.j
 import { describeMode, GenerateMenu } from "./GenerateMenu.js";
 import { Chips, Facts } from "./JobView.js";
 
-type QueuedJob = JobSummary & { aboveThreshold: boolean };
+type QueuedJob = JobSummary & { aboveThreshold: boolean; manual: boolean };
 
-/** Scored Jobs waiting for tailoring; Generate now runs it for one Job (uses quota). */
-export function Queue({ onCount }: { onCount: (n: number) => void }) {
+/**
+ * Scored Jobs waiting for tailoring. Generate now runs one Job; ticking several and
+ * "Generate selected" runs them one after the other (each uses quota). `version` changes
+ * when a Job is added elsewhere (the Add job dialog).
+ */
+export function Queue({ onCount, version }: { onCount: (n: number) => void; version: number }) {
   const [jobs, setJobs] = useState<QueuedJob[]>([]);
   const [threshold, setThreshold] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [batch, setBatch] = useState<{ done: number; total: number; current: string } | null>(null);
+  const [batchResult, setBatchResult] = useState<{ kind: "good" | "bad"; text: string; details: string[] } | null>(null);
 
   const reload = useCallback(async () => {
     const q = await api.queue();
@@ -17,24 +24,102 @@ export function Queue({ onCount }: { onCount: (n: number) => void }) {
     setThreshold(q.threshold);
     onCount(q.jobs.length);
     setSelected((s) => (s && q.jobs.some((j) => j.id === s) ? s : (q.jobs[0]?.id ?? null)));
+    setChecked((c) => new Set([...c].filter((id) => q.jobs.some((j) => j.id === id))));
   }, [onCount]);
-  useEffect(() => void reload(), [reload]);
+  useEffect(() => void reload(), [reload, version]);
 
+  const toggle = (id: string) =>
+    setChecked((c) => {
+      const next = new Set(c);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  /** One Job after the other, like `jobpipe generate`; stops when the subscription quota runs out. */
+  const generateSelected = async (mode: GenerateMode) => {
+    const list = jobs.filter((j) => checked.has(j.id));
+    if (!confirm(`Generate ${describeMode(mode)} for ${list.length} job(s)? One tailoring call each (~30s), using subscription quota.`)) return;
+    setBatchResult(null);
+    const failed: string[] = [];
+    let generated = 0;
+    let stopped = false;
+    for (const [i, j] of list.entries()) {
+      setBatch({ done: i, total: list.length, current: j.company });
+      try {
+        const r = await api.generate(j.id, mode);
+        if (r.status === "generated") generated++;
+        else if (r.status === "quota_exhausted") {
+          stopped = true;
+          break;
+        } else failed.push(`${j.company}: blocked by the guard${r.errors?.length ? ` (${r.errors[0]})` : ""}`);
+      } catch (e) {
+        failed.push(`${j.company}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    setBatch(null);
+    setChecked(new Set());
+    setBatchResult({
+      kind: failed.length || stopped ? "bad" : "good",
+      text:
+        `Generated ${generated} of ${list.length} — they are in the Generated tab.` +
+        (stopped ? " Stopped: subscription quota exhausted; the rest stay here." : ""),
+      details: failed,
+    });
+    await reload();
+  };
+
+  const manualIds = jobs.filter((j) => j.manual).map((j) => j.id);
   const firstBelow = jobs.findIndex((j) => !j.aboveThreshold);
   return (
     <main className="split">
       <aside className="list">
         <p className="muted pad small">
-          <code>pnpm jobpipe generate</code> takes the jobs at or above {threshold}, in this order. The ones below only get generated if you
-          ask.
+          <code>pnpm jobpipe generate</code> takes manual jobs and those at or above {threshold}, in this order. The ones below only get
+          generated if you ask.
         </p>
+        <div className="filters">
+          <button disabled={batch !== null || manualIds.length === 0} onClick={() => setChecked(new Set(manualIds))}>
+            Select manual
+          </button>
+          <button disabled={batch !== null || checked.size === 0} onClick={() => setChecked(new Set())}>
+            Clear
+          </button>
+          <GenerateMenu label={`Generate selected (${checked.size})`} primary busy={batch !== null} disabled={checked.size === 0} onPick={(m) => void generateSelected(m)} />
+        </div>
+        {batch && (
+          <div className="alert warn">
+            Generating {batch.done + 1} of {batch.total}: {batch.current}… keep this tab open.
+          </div>
+        )}
+        {batchResult && (
+          <div className={`alert ${batchResult.kind}`}>
+            {batchResult.text}
+            {batchResult.details.length > 0 && (
+              <ul>
+                {batchResult.details.map((d) => (
+                  <li key={d}>{d}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
         {jobs.length === 0 && <p className="muted pad">The queue is empty.</p>}
         {jobs.map((j, i) => (
           <div key={j.id}>
             {i === firstBelow && <div className="divider">Below the threshold ({threshold})</div>}
             <button className={`item ${selected === j.id ? "selected" : ""}`} onClick={() => setSelected(j.id)}>
               <div className="item-top">
-                <strong>{j.company}</strong>
+                <span className="row">
+                  <input
+                    type="checkbox"
+                    checked={checked.has(j.id)}
+                    disabled={batch !== null}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={() => toggle(j.id)}
+                  />
+                  <strong>{j.company}</strong>
+                </span>
                 <span className="score">{j.score ?? "manual"}</span>
               </div>
               <div className="item-title">{j.title}</div>

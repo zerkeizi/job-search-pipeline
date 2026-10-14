@@ -194,8 +194,9 @@ export function markApplied(db: Db, id: string, now = new Date()): void {
 }
 
 /**
- * The tailoring queue: `scored` Jobs in the order `generate` takes them (Preferred Jobs first, then
- * by score). Those below the threshold are only generated if I ask.
+ * The tailoring queue: `scored` Jobs in the order `generate` takes them (manual Jobs first, then
+ * Preferred Jobs, then by score). Manual Jobs ignore the threshold; the others below it are only
+ * generated if I ask.
  */
 export function listQueue(deps: ReviewDeps) {
   const threshold = deps.config.thresholds.generate;
@@ -204,10 +205,15 @@ export function listQueue(deps: ReviewDeps) {
     .from(jobs)
     .where(eq(jobs.status, "scored"))
     .all()
-    .map((j) => ({ ...summaryOf(deps.db, deps.config.preferences, j), aboveThreshold: (j.score ?? 0) >= threshold }))
+    .map((j) => {
+      const s = summaryOf(deps.db, deps.config.preferences, j);
+      const manual = s.sources.includes("manual");
+      return { ...s, manual, aboveThreshold: manual || (j.score ?? 0) >= threshold };
+    })
     .sort(
       (a, b) =>
         Number(b.aboveThreshold) - Number(a.aboveThreshold) ||
+        Number(b.manual) - Number(a.manual) ||
         Number(b.preferred) - Number(a.preferred) ||
         (b.score ?? -1) - (a.score ?? -1),
     );

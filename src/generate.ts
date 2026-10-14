@@ -142,9 +142,9 @@ export async function generate(jobIds: string[], deps: GenerateDeps, mode: Gener
     const t = result.output;
 
     const facts = t.job;
-    const known = job.companyNorm !== "";
-    const company = known ? job.company : facts.company;
-    const title = known ? job.title : facts.title;
+    // A manual Job may come without company and/or title: the tailoring reads them from the text.
+    const company = job.companyNorm !== "" ? job.company : facts.company;
+    const title = job.titleNorm !== "" ? job.title : facts.title;
     db.update(jobs)
       .set({
         company,

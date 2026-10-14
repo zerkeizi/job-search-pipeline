@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { addManualJob } from "../src/collectors/manual.js";
+import { addManualJobFromFile as addManualJob } from "../src/collectors/manual.js";
 import { loadConfig } from "../src/config.js";
 import { inspectPdf } from "../src/cv/pdf-inspect.js";
 import { loadBaseCv } from "../src/cv/schema.js";
@@ -58,7 +58,7 @@ describe("jobpipe add → generate", () => {
     const file = join(dir, "same.txt");
     writeFileSync(file, "Same job text");
     const first = addManualJob(db, file);
-    expect(addManualJob(db, file)).toEqual({ jobId: first.jobId, created: false });
+    expect(addManualJob(db, file)).toMatchObject({ jobId: first.jobId, created: false, existing: "same_text" });
   });
 
   it("generates a one-page CV, cover letter and analysis, and fills in the job facts", async () => {

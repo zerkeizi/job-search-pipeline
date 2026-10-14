@@ -11,12 +11,14 @@ const ITEMS: { mode: GenerateMode; label: string }[] = [
 export function GenerateMenu({
   label,
   busy,
+  disabled,
   primary,
   existing,
   onPick,
 }: {
   label: string;
   busy: boolean;
+  disabled?: boolean;
   primary?: boolean;
   /** Parts the Job already has: regenerating them replaces my edits. */
   existing?: { cv: boolean; coverLetter: boolean };
@@ -33,7 +35,7 @@ export function GenerateMenu({
     existing && ((mode !== "cover_letter" && existing.cv) || (mode !== "cv" && existing.coverLetter));
   return (
     <div className="menu" ref={ref}>
-      <button className={primary ? "primary" : ""} disabled={busy} onClick={() => setOpen((o) => !o)}>
+      <button className={primary ? "primary" : ""} disabled={busy || disabled} onClick={() => setOpen((o) => !o)}>
         {busy ? "Generating… (~30s)" : `${label} ▾`}
       </button>
       {open && (

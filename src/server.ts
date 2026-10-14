@@ -11,6 +11,7 @@ import {
   setFollowed,
   syncCompanies,
 } from "./companies.js";
+import { addManualJob } from "./collectors/manual.js";
 import { generate } from "./generate.js";
 import type { ClaudeRunner } from "./llm.js";
 import {
@@ -32,6 +33,8 @@ import {
   setLocalOffice,
   undoApplied,
 } from "./review.js";
+import { runScoring } from "./scoring.js";
+import { WORKPLACES } from "./status.js";
 import { GENERATE_MODES } from "./tailoring.js";
 import { UsageLog } from "./usage.js";
 
@@ -47,6 +50,14 @@ const editsSchema = z.object({
   summary: z.string().optional(),
   bullets: z.array(z.array(z.string())).optional(),
   coverLetter: z.string().optional(),
+});
+const manualSchema = z.object({
+  description: z.string().trim().min(1, "the job description is empty"),
+  url: z.string().nullish(),
+  company: z.string().nullish(),
+  title: z.string().nullish(),
+  location: z.string().nullish(),
+  workplace: z.enum(WORKPLACES).optional(),
 });
 const modeSchema = z.object({ mode: z.enum(GENERATE_MODES).default("both") });
 
@@ -97,6 +108,14 @@ export function createApp(deps: ServerDeps): Hono {
     } finally {
       regenerating = false;
     }
+  });
+
+  // "Add job" in the panel: no LLM call; scoring runs for matches and Gaps, and the Job lands in the Queue.
+  app.post("/api/jobs/manual", async (c) => {
+    const input = manualSchema.parse(await c.req.json());
+    const result = addManualJob(deps.db, input);
+    runScoring(deps, { jobIds: [result.jobId] });
+    return c.json(result);
   });
 
   app.post("/api/jobs/:id/discard", async (c) => {

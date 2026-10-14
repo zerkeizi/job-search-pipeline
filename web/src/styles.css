@@ -129,3 +129,13 @@ fieldset.plain { border: none; margin: 0; padding: 0; min-width: 0; }
 table { border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
 th, td { text-align: left; padding: 7px 14px; border-bottom: 1px solid var(--border); }
 th { font-size: 12px; color: var(--muted); font-weight: 500; }
+
+.filters .menu-items { left: 0; right: auto; }
+.overlay { position: fixed; inset: 0; background: rgb(0 0 0 / .35); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; z-index: 20; overflow-y: auto; }
+.dialog { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; width: min(760px, 100%); display: flex; flex-direction: column; gap: 10px; box-shadow: 0 12px 40px rgb(0 0 0 / .25); }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.form-grid label.wide { grid-column: 1 / -1; }
+.form-grid input { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--text); font-size: 14px; }
+.form-grid textarea, .form-grid select { color: var(--text); font-size: 14px; }
+header .add { margin-left: auto; }

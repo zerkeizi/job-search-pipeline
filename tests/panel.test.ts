@@ -12,6 +12,7 @@ import { loadBaseCv } from "../src/cv/schema.js";
 import { openDb } from "../src/db/index.js";
 import { jobs } from "../src/db/schema.js";
 import { ingest, type PostingIn } from "../src/ingest.js";
+import type { ClaudeRunner } from "../src/llm.js";
 import { createApp } from "../src/server.js";
 import { TechMatcher } from "../src/tech.js";
 
@@ -37,7 +38,20 @@ beforeAll(async () => {
   ingest(db, [posting("1", "Acme"), posting("2", "Beta")], config.dedupe);
   db.update(jobs).set({ status: "scored", score: 80 }).where(eq(jobs.company, "Acme")).run();
   db.update(jobs).set({ status: "generated", score: 75 }).where(eq(jobs.company, "Beta")).run();
-  const app = createApp({ db, config, cv: loadBaseCv(), matcher: TechMatcher.load(), outputDir: join(dir, "out"), webDir, logDir: join(dir, "logs") });
+  // Fake claude answering a cover-letter-only tailoring (no PDF to render).
+  const letter = {
+    keywords: ["React"], strong_matches: ["React"], gaps: [],
+    cover_letter: "Dear hiring team,\n\nI build web products with React and Node.\n\nNicolas Villanova",
+    job: { company: "Acme", title: "Full Stack Developer", workplace: "remote", office_city: null, office_days_per_week: null },
+  };
+  const runner: ClaudeRunner = {
+    command: process.execPath,
+    prefixArgs: [join(process.cwd(), "tests/fixtures/fake-claude.mjs")],
+    env: { ...process.env, FAKE_CLAUDE_MODE: "ok", FAKE_CLAUDE_OUTPUT: JSON.stringify(letter) },
+  };
+  const app = createApp({
+    db, config, cv: loadBaseCv(), matcher: TechMatcher.load(), outputDir: join(dir, "out"), webDir, logDir: join(dir, "logs"), runner,
+  });
   server = await new Promise<ServerType>((resolve) => {
     const s = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" }, () => resolve(s));
   });
@@ -52,6 +66,35 @@ afterAll(async () => {
 });
 
 describe("review panel", () => {
+  it("adds a job from the Add job dialog and shows it in the Queue", async () => {
+    const page = await browser.newPage();
+    await page.goto(base);
+    await page.getByRole("button", { name: "+ Add job" }).click();
+    await page.getByPlaceholder("Senior Full Stack Developer").fill("Backend Developer");
+    await page.getByPlaceholder("Acme").fill("Hand Picked Co");
+    await page.getByPlaceholder("Paste the full job description").fill("We need Node and React for our platform.");
+    await page.getByRole("button", { name: "Save and add another" }).click();
+    await page.getByText("Hand Picked Co added to the Queue.").waitFor();
+    await page.getByRole("button", { name: "Close" }).click();
+    await page.getByRole("button", { name: /^Queue/ }).click();
+    await page.locator(".item", { hasText: "Hand Picked Co" }).waitFor();
+    expect(await page.locator("nav").innerText()).toMatch(/Queue\s*2/);
+  }, 60_000);
+
+  it("generates the selected jobs one after the other", async () => {
+    const page = await browser.newPage();
+    page.on("dialog", (d) => void d.accept());
+    await page.goto(base);
+    await page.getByRole("button", { name: /^Queue/ }).click();
+    await page.locator(".item", { hasText: "Hand Picked Co" }).waitFor();
+    await page.getByRole("button", { name: "Select manual" }).click();
+    await page.getByRole("button", { name: /Generate selected \(1\)/ }).click();
+    await page.getByRole("button", { name: "Cover letter only" }).click();
+    await page.getByText("Generated 1 of 1").waitFor({ timeout: 30_000 });
+    await page.getByRole("button", { name: /^Generated/ }).click();
+    await page.locator(".item", { hasText: "Hand Picked Co" }).waitFor();
+  }, 60_000);
+
   it("does not keep calling the API while idle on any tab", async () => {
     const page = await browser.newPage();
     const calls: string[] = [];

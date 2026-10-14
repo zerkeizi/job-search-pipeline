@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type AnalysisPair, api, type CollectorRow, type JobSummary } from "./api.js";
+import { AddJob } from "./AddJob.js";
 import { JobView } from "./JobView.js";
 import { Companies } from "./Companies.js";
 import { Queue } from "./Queue.js";
@@ -10,6 +11,10 @@ type Counts = { generated: number; queue: number; applied: number; analysis: num
 export function App() {
   const [tab, setTab] = useState<Tab>("generated");
   const [counts, setCounts] = useState<Counts>({ generated: 0, queue: 0, applied: 0, analysis: 0 });
+  const [adding, setAdding] = useState(false);
+  // Bumped when a job is added from the dialog, so the counts and the Queue reload.
+  const [dataVersion, setDataVersion] = useState(0);
+  const onAdded = useCallback(() => setDataVersion((v) => v + 1), []);
 
   // One stable setter per tab. Returning the same state when the number didn't change makes
   // React skip the re-render, so a tab reporting its count can never trigger itself again.
@@ -25,7 +30,7 @@ export function App() {
     void Promise.all([api.jobs("review"), api.queue(), api.jobs("applied"), api.analysis()]).then(([g, q, a, an]) =>
       setCounts({ generated: g.length, queue: q.jobs.length, applied: a.length, analysis: an.length }),
     );
-  }, []);
+  }, [dataVersion]);
   return (
     <div className="app">
       <header>
@@ -50,9 +55,13 @@ export function App() {
             Collectors
           </button>
         </nav>
+        <button className="add primary" onClick={() => setAdding(true)}>
+          + Add job
+        </button>
       </header>
+      {adding && <AddJob onClose={() => setAdding(false)} onAdded={onAdded} />}
       {tab === "generated" && <Generated key="review" view="review" onCount={onGenerated} />}
-      {tab === "queue" && <Queue onCount={onQueue} />}
+      {tab === "queue" && <Queue onCount={onQueue} version={dataVersion} />}
       {tab === "applied" && <Generated key="applied" view="applied" onCount={onApplied} />}
       {tab === "analysis" && <AnalysisTab onCount={onAnalysis} />}
       {tab === "companies" && <Companies />}

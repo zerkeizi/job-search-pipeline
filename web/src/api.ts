@@ -91,6 +91,15 @@ export interface CollectorRow {
   blockedUntil: string | null;
 }
 
+export interface ManualJobInput {
+  description: string;
+  url?: string;
+  company?: string;
+  title?: string;
+  location?: string;
+  workplace?: Workplace;
+}
+
 export class ApiError extends Error {
   constructor(message: string, readonly details: string[]) {
     super(message);
@@ -124,7 +133,9 @@ export const api = {
   applied: (id: string) => call("POST", `/api/jobs/${id}/applied`),
   undoApplied: (id: string) => call("POST", `/api/jobs/${id}/undo-applied`),
   localOffice: (id: string, value: boolean | null) => call("PUT", `/api/jobs/${id}/local-office`, { value }),
-  queue: () => call<{ threshold: number; jobs: (JobSummary & { aboveThreshold: boolean })[] }>("GET", "/api/queue"),
+  queue: () => call<{ threshold: number; jobs: (JobSummary & { aboveThreshold: boolean; manual: boolean })[] }>("GET", "/api/queue"),
+  addJob: (job: ManualJobInput) =>
+    call<{ jobId: string; created: boolean; existing?: "same_text" | "same_link"; status: string }>("POST", "/api/jobs/manual", job),
   analysis: () => call<AnalysisPair[]>("GET", "/api/analysis"),
   merge: (id: string) => call("POST", `/api/analysis/${id}/merge`),
   keep: (id: string) => call<{ ok: true; queued: boolean }>("POST", `/api/analysis/${id}/keep`),

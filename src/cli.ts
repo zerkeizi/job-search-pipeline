@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { API_SOURCES, collectApiSources } from "./collectors/api.js";
 import { collectJobspy, JOBSPY_SITES } from "./collectors/jobspy.js";
-import { addManualJob } from "./collectors/manual.js";
+import { addManualJobFromFile } from "./collectors/manual.js";
 import { loadConfig } from "./config.js";
 import { loadBaseCv } from "./cv/schema.js";
 import { openDb } from "./db/index.js";
@@ -61,8 +61,15 @@ program
   .option("--url <link>", "where to apply (stored as the apply URL)")
   .action(async (file: string, opts: { url?: string }) => {
     const db = openDb();
-    const { jobId, created } = addManualJob(db, file, opts.url);
-    console.log(created ? `added job ${jobId}` : `already added as job ${jobId}; generating again`);
+    const r = addManualJobFromFile(db, file, opts.url);
+    const { jobId } = r;
+    console.log(
+      r.created
+        ? `added job ${jobId}`
+        : r.existing === "same_link"
+          ? `that link is job ${jobId}, already collected (${r.status}); generating it`
+          : `already added as job ${jobId}; generating again`,
+    );
     runScoring({ db, config: loadConfig(), cv: loadBaseCv(), matcher: TechMatcher.load() }, { jobIds: [jobId] });
     await runGenerate([jobId]);
   });

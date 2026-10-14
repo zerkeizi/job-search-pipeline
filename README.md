@@ -98,11 +98,21 @@ pnpm jobpipe score                   # pre-filter + score the new jobs
 pnpm jobpipe generate                # tailor the queue; --limit 3, --only cv | --only cover-letter
 ```
 
-A job I found myself (pasted into a `.txt` file) skips the filters and the threshold:
+A job I found myself skips the filters and the threshold. In the panel, **+ Add job** (top right)
+takes title, company, link, location, workplace and the description (only the description is
+required); it goes straight to the top of the **Queue** with its score, matches and Gaps, without
+using quota. **Save and add another** keeps the form open, so I can add jobs for a while and then,
+in the Queue, **Select manual** → **Generate selected** to generate them all at once (one after the
+other, with progress).
+
+From the terminal (generates right away):
 
 ```bash
 pnpm jobpipe add job.txt --url https://company.com/jobs/123
 ```
+
+Adding a link that was already collected doesn't duplicate it: my text is attached to that job,
+which goes back to the Queue if it had been filtered out or discarded.
 
 Everything runs only when I start it — there is no scheduler.
 
@@ -114,7 +124,7 @@ Restart it after updating the code.
 | Tab | What's there |
 |---|---|
 | **Generated** | Jobs with a generated CV and/or cover letter, Preferred Jobs first. Description on the left; on the right the keywords, matches, Gaps, guard warnings, the PDF preview, each rewritten bullet next to the original and the reason for the change, and the cover letter. Edit the summary, bullets or letter and **Save edits** (goes through the guard and re-renders). Buttons: **Open apply link**, **Copy cover letter**, **Generate ▾** (CV + cover letter, CV only or cover letter only), **Discard**, **Mark as applied**. Local Office can be corrected by hand. |
-| **Queue** | Scored jobs waiting for generation, in the order `generate` takes them; the ones below the threshold come after a divider. **Generate now ▾** (any of the three modes, also below the threshold), **Mark as applied** (when I applied on the site without generating anything, e.g. Gupy), **Discard**. |
+| **Queue** | Scored jobs waiting for generation, in the order `generate` takes them (manual jobs first); the ones below the threshold come after a divider. Tick several (or **Select manual**) and **Generate selected ▾**. **Generate now ▾** (any of the three modes, also below the threshold), **Mark as applied** (when I applied on the site without generating anything, e.g. Gupy), **Discard**. |
 | **Applied** | Jobs I marked as applied, most recent first, read-only. **Undo applied** for a mistaken click. |
 | **Analysis** | Possible duplicates side by side with their description similarity: **Merge** (the postings join the existing job, which keeps its status) or **Keep separate** (the job goes back to the Queue). |
 | **Companies** | The company catalog: boards with their counts (fitting / dev / open roles), jobs collected, applications, Local Office. **Follow**, **Rename**, **Merge…**. |
