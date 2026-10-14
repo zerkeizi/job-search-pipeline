@@ -71,6 +71,6 @@ languages:
 
 tech_skills:
   - { category: Frontend, items: "HTML5 , CSS3, JavaScript (React, Vue, Vite, TypeScript)." }
-  - { category: Backend, items: "JavaScript (Node, Nest), PHP (Laravel, Wordpress, Drupal)." }
-  - { category: Databases, items: "MySQL, PostgreSQL, Oracle." }
+  - { category: Backend, items: "JavaScript (Node, Nest), PHP (Laravel, Wordpress, Drupal), REST API" }
+  - { category: Databases, items: "MySQL, SQL, PostgreSQL, Oracle." }
   - { category: Tools & Infra, items: "Linux, Nginx, Git, Docker, Kubernetes, RabbitMQ." }

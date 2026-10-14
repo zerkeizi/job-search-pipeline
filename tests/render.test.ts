@@ -17,7 +17,7 @@ describe("render regression", () => {
   let rendered: PdfLayout;
 
   beforeAll(async () => {
-    await renderCvPdf(loadBaseCv(), loadConfig().render, out);
+    await renderCvPdf(loadBaseCv("tests/fixtures/base-original.yaml"), loadConfig().render, out);
     [original, rendered] = await Promise.all([inspectPdf("cv/original.pdf"), inspectPdf(out)]);
   }, 60_000);
 

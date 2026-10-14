@@ -1,0 +1,78 @@
+# Frozen copy of cv/base.yaml as it matches cv/original.pdf, for the render regression test.
+# Do not edit: cv/base.yaml can change freely; this file tests the template, not the content.
+# Base CV — single source of truth for my professional history (see GLOSSARY.md).
+# Extracted from cv/original.pdf. Text is kept exactly as in the PDF, including typos,
+# so the visual regression test can compare against the original.
+#
+# education, languages and tech_skills are fixed sections: never sent to the LLM,
+# rendered literally from this file.
+
+name: NICOLAS VILLANOVA
+headline: Full-stack Web Developer
+contacts:
+  - { label: linkedin.com/in/nicolavnp, url: "https://www.linkedin.com/in/nicolavnp" }
+  - { label: nicolasgabrip@gmail.com, url: "mailto:nicolasgabrip@gmail.com" }
+  - { label: github.com/zerkeizi, url: "http://github.com/zerkeizi" }
+
+summary: >-
+  Full-stack JavaScript developer with 7 years building web products. Currently working in a SERN stack,
+  but also familiar with frameworks such as NestJS. Proven experience with microservices architecture using
+  RabbitMQ for communication. Attention to performance, UX, and SEO. Also comfortable in PHP with
+  Laravel, WordPress and Drupal when the project calls for it. Personal experience with AI coding agents
+  (Claude Code), exploring subagents and skills.
+
+experience:
+  - company: TRIZY
+    role: Full-stack Developer
+    start: May 2022
+    end: Jan 2026
+    bullets:
+      - Developed new features and enhancements using ReactJS, NodeJS, improving usability.
+      - Optimized and stabilized legacy apps built in Oracle PL/SQL stored procedures and AngularJS.
+      - Developed apps using NestJS and RabbitMQ, establishing communication between microservices.
+      - Worked within a MFE architecture across independent repositories.
+      - Constant use of kubectl or kubenav to port-forward into different microservices' slots, enabling direct local access to their databases for debugging and troubleshooting.
+      - Contributed to code quality through git-based workflows and code reviews.
+
+  - company: MEEG LAB
+    role: Full-stack Developer
+    start: Feb 2021
+    end: May 2022
+    bullets:
+      - Developed websites using Drupal and Laravel improving CMS workflow and platform flexibility.
+      - Built decoupled NuxtJS + Laravel APIs, cutting future development time by ~50%.
+      - Configured Linux VPS with Nginx reverse proxy and PM2 for node app deployments.
+      - Implemented API integrations to extend product capabilities and meet business requirements.
+
+  - company: TRINTO
+    role: Front-end Developer
+    start: Oct 2020
+    end: Jan 2021
+    bullets:
+      - Developed modules for HubSpot websites using Vue, SCSS and Gulp, enhancing website building.
+      - Developed responsive hotsites for marketing campaigns using pure HTML and CSS.
+
+  - company: MAIS SHOWS
+    role: Full-stack Developer
+    start: Jun 2019
+    end: Sep 2020
+    bullets:
+      - Developed web pages with HTML, CSS and JS (JQuery), supporting usability improvements
+      - Contributed to projects using ReactJS and React Native, expanding product’s capabilities across devices
+      - Developed in a PHP (Laravel) in a MVC architecture platform, improving and adding new features.
+      - Enhanced payment gateway (Pagar.me) integration – adding multi-currency support for international transactions.
+
+education:
+  - { degree: Technical Degree | System Development and Analysis, institution: Instituto Federal do Rio Grande do Sul, period: "2019 - 2021" }
+  - { degree: Information Technology Degree, institution: Protásio Alves Institute, period: "2015 – 2018" }
+
+languages:
+  - { language: Portuguese, level: Native }
+  - { language: English, level: Full professional proficiency }
+  - { language: Spanish, level: Professional working proficiency }
+
+tech_skills:
+  - { category: Frontend, items: "HTML5 , CSS3, JavaScript (React, Vue, Vite, TypeScript)." }
+  - { category: Backend, items: "JavaScript (Node, Nest), PHP (Laravel, Wordpress, Drupal)." }
+  - { category: Databases, items: "MySQL, PostgreSQL, Oracle." }
+  - { category: Tools & Infra, items: "Linux, Nginx, Git, Docker, Kubernetes, RabbitMQ." }
