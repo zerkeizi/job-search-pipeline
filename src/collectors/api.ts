@@ -4,6 +4,7 @@ import type { Config } from "../config.js";
 import type { Db } from "../db/index.js";
 import { collectorState } from "../db/schema.js";
 import { ingest, type IngestResult } from "../ingest.js";
+import { followedBoards } from "../companies.js";
 import { collectAshby } from "./ashby.js";
 import { collectGreenhouse } from "./greenhouse.js";
 import { collectGupy } from "./gupy.js";
@@ -30,10 +31,14 @@ export interface ApiSourceSummary extends IngestResult {
   errors: string[];
 }
 
-function targetsOf(config: Config, source: ApiSource): number {
+function boardsOf(db: Db, source: ApiSource): string[] {
+  return source === "greenhouse" || source === "lever" || source === "ashby" ? followedBoards(db, source) : [];
+}
+
+function targetsOf(db: Db, config: Config, source: ApiSource): number {
   if (source === "gupy") return config.sources.gupy.queries.length;
   if (source === "remotive") return 1;
-  return config.sources[source].companies.length;
+  return boardsOf(db, source).length;
 }
 
 /** Hours since the last successful collection (Infinity if never). */
@@ -59,9 +64,13 @@ export async function collectApiSources(db: Db, config: Config, opts: ApiCollect
   for (const source of opts.sources ?? API_SOURCES) {
     const summary: ApiSourceSummary = { source, status: "ok", created: 0, linked: 0, seenAgain: 0, flagged: 0, errors: [] };
     out.push(summary);
-    if (!config.sources[source].enabled || targetsOf(config, source) === 0) {
+    if (!config.sources[source].enabled || targetsOf(db, config, source) === 0) {
       summary.status = "disabled";
-      summary.detail = config.sources[source].enabled ? "no companies/queries configured" : "disabled in config";
+      summary.detail = !config.sources[source].enabled
+        ? "disabled in config"
+        : source === "gupy"
+          ? "no queries configured"
+          : `no followed company has a ${source} board (see the Companies tab)`;
       continue;
     }
     if (!opts.force && isBlocked(db, source, now())) {
@@ -82,7 +91,7 @@ export async function collectApiSources(db: Db, config: Config, opts: ApiCollect
     const started = Date.now();
     let got = 0;
     try {
-      for await (const batch of COLLECTORS[source]({ config, http, since })) {
+      for await (const batch of COLLECTORS[source]({ config, http, since, boards: boardsOf(db, source) })) {
         got += batch.items.length;
         const stored = ingest(db, batch.items, config.dedupe, now());
         summary.created += stored.created;
@@ -91,7 +100,7 @@ export async function collectApiSources(db: Db, config: Config, opts: ApiCollect
         summary.flagged += stored.flagged;
         if (batch.error) summary.errors.push(`${batch.target}: ${batch.error}`);
       }
-      if (summary.errors.length < targetsOf(config, source)) markSuccess(db, source, now(), got);
+      if (summary.errors.length < targetsOf(db, config, source)) markSuccess(db, source, now(), got);
       else summary.status = "error";
     } catch (err) {
       if (err instanceof BlockedError) {

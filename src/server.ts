@@ -2,6 +2,15 @@ import { readFileSync } from "node:fs";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { z } from "zod";
+import {
+  CompanyError,
+  mergeCompanies,
+  refreshLocalOffice,
+  renameCompany,
+  setCompanyLocalOffice,
+  setFollowed,
+  syncCompanies,
+} from "./companies.js";
 import { generate } from "./generate.js";
 import type { ClaudeRunner } from "./llm.js";
 import {
@@ -10,6 +19,7 @@ import {
   jobDetail,
   keepSeparate,
   listAnalysis,
+  listCompanies,
   listApplied,
   listGenerated,
   listQueue,
@@ -47,10 +57,14 @@ const modeSchema = z.object({ mode: z.enum(GENERATE_MODES).default("both") });
  */
 export function createApp(deps: ServerDeps): Hono {
   const app = new Hono();
+  // Jobs collected before Companies existed (or named by a tailoring since) get theirs now.
+  syncCompanies(deps.db);
+  refreshLocalOffice(deps.db, deps.config.preferences);
   let regenerating = false;
 
   app.onError((err, c) => {
     if (err instanceof ReviewError) return c.json({ error: err.message, details: err.details }, err.status);
+    if (err instanceof CompanyError) return c.json({ error: err.message, details: [] }, 409);
     if (err instanceof z.ZodError) return c.json({ error: "invalid request", details: err.issues.map((i) => i.message) }, 400);
     console.error(err);
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
@@ -113,6 +127,28 @@ export function createApp(deps: ServerDeps): Hono {
   });
 
   app.get("/api/collectors", (c) => c.json(collectorStatus(deps)));
+
+  app.get("/api/companies", (c) => c.json(listCompanies(deps)));
+  app.post("/api/companies/:id/follow", async (c) => {
+    const { followed } = z.object({ followed: z.boolean() }).parse(await c.req.json());
+    setFollowed(deps.db, c.req.param("id"), followed);
+    return c.json({ ok: true });
+  });
+  app.post("/api/companies/:id/rename", async (c) => {
+    const { name } = z.object({ name: z.string() }).parse(await c.req.json());
+    renameCompany(deps.db, c.req.param("id"), name);
+    return c.json({ ok: true });
+  });
+  app.post("/api/companies/:id/merge", async (c) => {
+    const { into } = z.object({ into: z.string() }).parse(await c.req.json());
+    mergeCompanies(deps.db, c.req.param("id"), into, deps.config.preferences);
+    return c.json({ ok: true });
+  });
+  app.put("/api/companies/:id/local-office", async (c) => {
+    const { value } = z.object({ value: z.boolean().nullable() }).parse(await c.req.json());
+    setCompanyLocalOffice(deps.db, c.req.param("id"), value, deps.config.preferences);
+    return c.json({ ok: true });
+  });
   app.all("/api/*", (c) => c.json({ error: `unknown API route ${c.req.method} ${c.req.path} — restart \`pnpm jobpipe review\`?` }, 404));
 
   if (deps.webDir) {

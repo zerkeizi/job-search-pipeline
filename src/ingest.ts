@@ -1,5 +1,6 @@
 import { and, eq, gte } from "drizzle-orm";
 import type { Config } from "./config.js";
+import { syncCompanies } from "./companies.js";
 import { canonicalUrl, descriptionSimilarity, ORIGIN_SOURCES, titlesSimilar } from "./dedupe.js";
 import type { Db } from "./db/index.js";
 import { jobs, postings } from "./db/schema.js";
@@ -135,5 +136,6 @@ export function ingest(db: Db, items: PostingIn[], dedupe: Config["dedupe"], now
       if (similarTo) result.flagged++;
     }
   });
+  syncCompanies(db, now);
   return result;
 }

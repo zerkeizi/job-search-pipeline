@@ -40,8 +40,8 @@ export function toGreenhousePosting(raw: unknown, board: string): PostingIn | nu
   };
 }
 
-export const collectGreenhouse: ApiCollector = async function* ({ config, http, since }) {
-  for (const board of config.sources.greenhouse.companies) {
+export const collectGreenhouse: ApiCollector = async function* ({ http, since, boards }) {
+  for (const board of boards) {
     try {
       const body = JSON.parse(await http.get(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(board)}/jobs?content=true`));
       const jobs = z.object({ jobs: z.array(z.unknown()) }).parse(body).jobs;

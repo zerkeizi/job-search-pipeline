@@ -7,6 +7,7 @@ import { loadBaseCv } from "./cv/schema.js";
 import { openDb } from "./db/index.js";
 import { formatResults, runDoctor } from "./doctor.js";
 import { generate, type GenerateOutcome, pendingJobIds } from "./generate.js";
+import { checkBoards, importBoards, syncCompanies } from "./companies.js";
 import { runScoring } from "./scoring.js";
 import { computeStats, formatStats } from "./stats.js";
 import type { GenerateMode } from "./tailoring.js";
@@ -170,6 +171,56 @@ program
     serve({ fetch: app.fetch, port: opts.port, hostname: "127.0.0.1" }, ({ port }) =>
       console.log(`review panel: http://localhost:${port}  (Ctrl+C to stop)`),
     );
+  });
+
+const companiesCmd = program.command("companies").description("company catalog: boards on Greenhouse, Lever and Ashby");
+
+companiesCmd
+  .command("import")
+  .description("add boards from a file: one per line — a board URL, ats:slug, or a bare slug (all three ATSs are tried)")
+  .argument("<file>")
+  .action((file: string) => {
+    const db = openDb();
+    syncCompanies(db);
+    const r = importBoards(db, file);
+    console.log(`import: ${r.added} added, ${r.known} already known${r.invalid.length ? `, ${r.invalid.length} not understood` : ""}`);
+    for (const line of r.invalid) console.log(`  ? ${line}`);
+    if (r.added) console.log("next: pnpm jobpipe companies check");
+  });
+
+companiesCmd
+  .command("check")
+  .description("fetch each board once (unchecked or older than 7 days) and record open/dev/fitting jobs")
+  .option("--all", "re-check every board")
+  .action(async (opts: { all?: boolean }) => {
+    const db = openDb();
+    const config = loadConfig();
+    syncCompanies(db);
+    const { politeHttp } = await import("./collectors/http.js");
+    const s = await checkBoards(db, config, politeHttp(config.limits.request_delay_seconds * 1000), opts);
+    console.log(`check: ${s.checked} boards — ${s.ok} ok, ${s.notFound} not found${s.removedGuesses ? ` (${s.removedGuesses} guessed boards removed)` : ""}, ${s.errors.length} errors`);
+    for (const e of s.errors) console.log(`  error: ${e}`);
+    if (s.blocked.length) console.log(`  BLOCKED until midnight: ${s.blocked.join(", ")} — the rest of those boards were not checked`);
+  });
+
+companiesCmd
+  .command("list")
+  .description("companies with boards, followed first (the panel's Companies tab has more)")
+  .action(async () => {
+    const db = openDb();
+    syncCompanies(db);
+    const { listCompanies } = await import("./review.js");
+    const rows = listCompanies({ db, config: loadConfig(), cv: loadBaseCv(), matcher: TechMatcher.load(), outputDir: "output" }).filter(
+      (c) => c.boards.length > 0 || c.followed,
+    );
+    if (rows.length === 0) return console.log("no company boards yet — collect jobs or run pnpm jobpipe companies import <file>");
+    for (const c of rows) {
+      const boards = c.boards
+        .map((b) => `${b.ats}:${b.slug} ${b.checkStatus === "ok" ? `${b.fitJobs}/${b.devJobs}/${b.openJobs}` : b.checkStatus}`)
+        .join(", ");
+      console.log(`${c.followed ? "★" : " "} ${c.name.padEnd(28)} ${boards}${c.jobs ? `  · ${c.jobs} jobs collected` : ""}`);
+    }
+    console.log("counts: fitting (remote/Brazil/LatAm dev roles) / dev roles / open jobs");
   });
 
 program

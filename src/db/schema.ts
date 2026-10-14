@@ -4,6 +4,60 @@ import { JOB_STATUSES, SOURCES, WORKPLACES } from "../status.js";
 
 const inList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));
 
+/**
+ * Company: the employer behind Jobs and job boards (see GLOSSARY.md and ADR 0006). Identified by
+ * normalized name; extra names (aliases, from Merge) live in company_names.
+ */
+export const companies = sqliteTable("companies", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  /** Local Office of the company: `posting` (a Job of it is in my city) or `manual` (my correction, prevails). */
+  localOffice: integer("local_office", { mode: "boolean" }).notNull().default(false),
+  localOfficeSource: text("local_office_source", { enum: ["posting", "manual"] }),
+  /** Followed companies have their boards collected (Greenhouse, Lever, Ashby). */
+  followed: integer("followed", { mode: "boolean" }).notNull().default(false),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull(),
+});
+
+/** Every normalized name a company is known by (its own and aliases). */
+export const companyNames = sqliteTable("company_names", {
+  nameNorm: text("name_norm").primaryKey(),
+  companyId: text("company_id")
+    .notNull()
+    .references(() => companies.id),
+});
+
+export const BOARD_ATS = ["greenhouse", "lever", "ashby"] as const;
+export type BoardAts = (typeof BOARD_ATS)[number];
+
+/** A company's public job board on an ATS (boards.greenhouse.io/<slug>, jobs.lever.co/<slug>, jobs.ashbyhq.com/<slug>). */
+export const companyBoards = sqliteTable(
+  "company_boards",
+  {
+    id: text("id").primaryKey(),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id),
+    ats: text("ats", { enum: BOARD_ATS }).notNull(),
+    slug: text("slug").notNull(),
+    /** `posting`: seen in a collected Posting's link; `import`: from `jobpipe companies import`. */
+    discoveredFrom: text("discovered_from", { enum: ["posting", "import"] }).notNull(),
+    /** Imported as a bare slug: the ATS was a guess, removed if the check finds no board. */
+    guessed: integer("guessed", { mode: "boolean" }).notNull().default(false),
+    discoveredAt: text("discovered_at").notNull(),
+    checkStatus: text("check_status", { enum: ["unchecked", "ok", "not_found", "error"] }).notNull().default("unchecked"),
+    checkError: text("check_error"),
+    checkedAt: text("checked_at"),
+    openJobs: integer("open_jobs"),
+    /** Open jobs whose title passes my title filters. */
+    devJobs: integer("dev_jobs"),
+    /** Of those, remote or in Brazil/Latin America. */
+    fitJobs: integer("fit_jobs"),
+  },
+  (t) => [uniqueIndex("company_boards_ats_slug_idx").on(t.ats, t.slug), index("company_boards_company_idx").on(t.companyId)],
+);
+
 export const jobs = sqliteTable(
   "jobs",
   {
@@ -13,6 +67,7 @@ export const jobs = sqliteTable(
     title: text("title").notNull(),
     companyNorm: text("company_norm").notNull(),
     titleNorm: text("title_norm").notNull(),
+    companyId: text("company_id").references(() => companies.id),
     workplace: text("workplace", { enum: WORKPLACES }).notNull().default("unknown"),
     city: text("city"),
     officeDays: integer("office_days"),
@@ -84,6 +139,8 @@ export const collectorState = sqliteTable("collector_state", {
   lastCount: integer("last_count"),
 });
 
+export type Company = typeof companies.$inferSelect;
+export type CompanyBoard = typeof companyBoards.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
 export type Posting = typeof postings.$inferSelect;

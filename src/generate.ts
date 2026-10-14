@@ -9,7 +9,7 @@ import { guard, type TailoredContent } from "./guard.js";
 import { type ClaudeRunner, QuotaExhaustedError } from "./llm.js";
 import { normalizeCompany, normalizeTitle } from "./normalize.js";
 import { fitCvToOnePage, type LineBudget, measureLineBudget } from "./render.js";
-import { refreshLocalOffice } from "./scoring.js";
+import { refreshLocalOffice, syncCompanies } from "./companies.js";
 import { type GenerateMode, includesCoverLetter, includesCv, type PartialTailoring, tailor } from "./tailoring.js";
 import { matchTechnologies, type TechMatcher } from "./tech.js";
 import { UsageLog } from "./usage.js";
@@ -196,7 +196,8 @@ export async function generate(jobIds: string[], deps: GenerateDeps, mode: Gener
       .run();
     outcomes.push({ jobId, status: "generated", mode, pdfPath, scale: fit?.scale ?? null, pageWarning, warnings: checked.warnings });
   }
-  // The tailoring may have corrected cities; Local Office follows.
+  // The tailoring may have named the company of a manual Job and corrected cities; Local Office follows.
+  syncCompanies(db);
   refreshLocalOffice(db, config.preferences);
   return outcomes;
 }

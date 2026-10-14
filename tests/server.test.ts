@@ -215,6 +215,24 @@ describe("review API", () => {
     expect(q.jobs.map((j) => j.aboveThreshold)).toEqual([true, true, false]);
   });
 
+  it("lists companies, follows one and shows prior applications on a job", async () => {
+    const { generated, send, job } = setup();
+    const first = generated({ company: "Acme" }, { status: "applied" });
+    const second = generated({ company: "ACME Ltda.", description: "another opening at the same company" });
+    const companyId = job(first)!.companyId!;
+    expect(job(second)!.companyId).toBe(companyId);
+
+    const list = (await (await send("GET", "/api/companies")).json()) as { id: string; jobs: number; applied: number; followed: boolean }[];
+    expect(list.find((c) => c.id === companyId)).toMatchObject({ jobs: 2, applied: 1, followed: false });
+    await send("POST", `/api/companies/${companyId}/follow`, { followed: true });
+    const after = (await (await send("GET", "/api/companies")).json()) as { id: string; followed: boolean }[];
+    expect(after[0]).toMatchObject({ id: companyId, followed: true });
+
+    const detail = (await (await send("GET", `/api/jobs/${second}`)).json()) as { appliedAtCompany: number };
+    expect(detail.appliedAtCompany).toBe(1);
+    expect((await send("POST", `/api/companies/${companyId}/merge`, { into: companyId })).status).toBe(409);
+  });
+
   it("reports collector status", async () => {
     const { db, app } = setup();
     markSuccess(db, "gupy", new Date("2026-10-13T10:00:00Z"), 18);

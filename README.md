@@ -61,7 +61,7 @@ Everything lives in **`config.yaml`**. The parts I'm most likely to change:
 | `filters` | Words that cut a job by title (`exclude_title_words`), words a dev role must have (`require_title_words`), max posting age, blocked companies |
 | `sources.jobspy.searches` | Search terms and locations for LinkedIn/Indeed/Glassdoor/Google |
 | `sources.gupy.queries` | Gupy search terms |
-| `sources.greenhouse/lever/ashby.companies` | Company boards to follow (the slug in `boards.greenhouse.io/<slug>`, `jobs.lever.co/<slug>`, `jobs.ashbyhq.com/<slug>`). Empty = source inactive |
+| `sources.greenhouse/lever/ashby.enabled` | On/off. *Which* companies is decided in the panel (Companies tab) |
 | `thresholds.generate` | Minimum score for a job to be generated automatically (70) |
 | `limits.generate_per_run` | Max jobs generated per run (10) |
 | `models.tailoring` | Claude model alias used for tailoring (`sonnet`) |
@@ -117,6 +117,7 @@ Restart it after updating the code.
 | **Queue** | Scored jobs waiting for generation, in the order `generate` takes them; the ones below the threshold come after a divider. **Generate now ▾** (any of the three modes, also below the threshold), **Mark as applied** (when I applied on the site without generating anything, e.g. Gupy), **Discard**. |
 | **Applied** | Jobs I marked as applied, most recent first, read-only. **Undo applied** for a mistaken click. |
 | **Analysis** | Possible duplicates side by side with their description similarity: **Merge** (the postings join the existing job, which keeps its status) or **Keep separate** (the job goes back to the Queue). |
+| **Companies** | The company catalog: boards with their counts (fitting / dev / open roles), jobs collected, applications, Local Office. **Follow**, **Rename**, **Merge…**. |
 | **Collectors** | Each source: enabled or not, last successful collection, how many postings it brought, blocked until when. |
 
 Some boards (like Gupy) don't take a CV file — I fill in my profile on the site — but they do take
@@ -124,6 +125,29 @@ a cover letter. **Cover letter only** is the cheaper call for those.
 
 **Discard** is final in the panel: the job stays in the database (with the reason) and is never
 shown or re-scored again, even if it is collected again.
+
+### Companies (Greenhouse, Lever, Ashby)
+
+These three have no search: their public APIs list one company's jobs at a time. So the system
+keeps a **company catalog** and collects the boards of the companies I **follow**.
+
+- Boards are **discovered automatically** from the links of collected jobs (a LinkedIn or Indeed
+  posting that sends you to `jobs.lever.co/acme` reveals Acme's board) — no extra requests.
+- Or **import** a list, one per line — a board URL, `greenhouse:slug`, or just a slug (all three
+  ATSs are tried):
+  ```bash
+  pnpm jobpipe companies import companies.txt
+  ```
+- **Check** them (one request per board, polite) to see how many open roles each has, how many
+  are developer roles and how many of those are remote or in Brazil/Latin America:
+  ```bash
+  pnpm jobpipe companies check        # new boards and those checked > 7 days ago; --all for every one
+  pnpm jobpipe companies list
+  ```
+- In the panel's **Companies** tab, **Follow** the ones I want; from the next `collect` on, their
+  boards are collected. **Merge** joins two names of the same employer ("Nubank" / "Nu Pagamentos"),
+  **Rename** fixes a name; Local Office can be set per company.
+- When reviewing a job, the panel warns if I already applied to another job at the same company.
 
 ### Statistics
 

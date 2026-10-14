@@ -12,7 +12,8 @@ import { toRemotivePosting } from "../src/collectors/remotive.js";
 import { toAshbyPosting } from "../src/collectors/ashby.js";
 import { loadConfig } from "../src/config.js";
 import { openDb } from "../src/db/index.js";
-import { postings } from "../src/db/schema.js";
+import { type BoardAts, postings } from "../src/db/schema.js";
+import { addBoard, companyFor, setFollowed } from "../src/companies.js";
 import { htmlToText } from "../src/html.js";
 
 const logDir = mkdtempSync(join(tmpdir(), "jobpipe-api-"));
@@ -48,12 +49,23 @@ const config = {
   sources: {
     ...base.sources,
     gupy: { enabled: true, queries: ["full stack"] },
-    greenhouse: { enabled: true, companies: ["acme", "missing"] },
-    lever: { enabled: true, companies: ["beta"] },
-    ashby: { enabled: true, companies: ["gamma"] },
+    greenhouse: { enabled: true },
+    lever: { enabled: true },
+    ashby: { enabled: true },
     remotive: { ...base.sources.remotive, enabled: true },
   },
 };
+/** A database whose followed companies have these boards (what the ATS collectors fetch). */
+function dbWithBoards(boards: [BoardAts, string][] = [["greenhouse", "acme"], ["greenhouse", "missing"], ["lever", "beta"], ["ashby", "gamma"]]) {
+  const db = openDb(":memory:");
+  for (const [ats, slug] of boards) {
+    const id = companyFor(db, slug, NOW)!;
+    addBoard(db, id, ats, slug, "import", NOW);
+    setFollowed(db, id, true);
+  }
+  return db;
+}
+
 const routes = {
   "portal.gupy.io": gupyHtml([gupyJob, { ...gupyJob, id: 102, publishedDate: "2025-01-01T00:00:00Z" }]),
   "boards/acme/": JSON.stringify({ jobs: [ghJob] }),
@@ -91,7 +103,7 @@ describe("mappers", () => {
 
 describe("collectApiSources", () => {
   it("collects every source, filters by window, and keeps going when one target fails", async () => {
-    const db = openDb(":memory:");
+    const db = dbWithBoards();
     const out = await collectApiSources(db, config, { http: fakeHttp(routes), now: () => NOW, logDir });
     const by = Object.fromEntries(out.map((s) => [s.source, s]));
     expect(by.gupy).toMatchObject({ status: "ok", created: 1 }); // the 2025 job is outside the window
@@ -104,7 +116,7 @@ describe("collectApiSources", () => {
   });
 
   it("stops a blocked source until midnight without affecting the others", async () => {
-    const db = openDb(":memory:");
+    const db = dbWithBoards();
     const http = fakeHttp({ ...routes, "boards/acme/": new BlockedError("HTTP 429 from boards-api.greenhouse.io") });
     const out = await collectApiSources(db, config, { http, now: () => NOW, logDir });
     expect(out.find((s) => s.source === "greenhouse")?.status).toBe("blocked");
@@ -117,12 +129,12 @@ describe("collectApiSources", () => {
   });
 
   it("respects Remotive's request limit and skips sources with nothing configured", async () => {
-    const db = openDb(":memory:");
+    const db = dbWithBoards();
     await collectApiSources(db, config, { http: fakeHttp(routes), now: () => NOW, logDir, sources: ["remotive"] });
     const soon = new Date(NOW.getTime() + 3_600_000);
     const again = await collectApiSources(db, config, { http: fakeHttp(routes), now: () => soon, logDir, sources: ["remotive"] });
     expect(again[0]?.status).toBe("skipped");
-    const none = await collectApiSources(db, { ...config, sources: { ...config.sources, lever: { enabled: true, companies: [] } } }, { http: fakeHttp(routes), now: () => NOW, logDir, sources: ["lever"] });
+    const none = await collectApiSources(dbWithBoards([]), config, { http: fakeHttp(routes), now: () => NOW, logDir, sources: ["lever"] });
     expect(none[0]?.status).toBe("disabled");
   });
 });

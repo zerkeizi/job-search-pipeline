@@ -7,6 +7,8 @@ export interface CollectContext {
   http: Http;
   /** Only postings published after this moment are wanted (the collection window). */
   since: Date;
+  /** Board slugs to fetch (Greenhouse/Lever/Ashby): the boards of followed Companies. */
+  boards: string[];
 }
 
 /** One batch per target (a search query or a company board). `error` = that target failed, others go on. */

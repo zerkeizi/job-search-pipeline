@@ -1,4 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
+import { refreshLocalOffice, syncCompanies } from "./companies.js";
 import type { Config } from "./config.js";
 import type { BaseCv } from "./cv/schema.js";
 import type { Db } from "./db/index.js";
@@ -108,6 +109,7 @@ export function runScoring(
   const statuses: JobStatus[] = opts.all ? ["new", "filtered_out", "scored", "analysis"] : ["new"];
   const where = opts.jobIds ? inArray(jobs.id, opts.jobIds) : inArray(jobs.status, statuses);
   const summary: ScoringSummary = { scored: 0, analysis: 0, filteredOut: {}, aboveThreshold: 0 };
+  syncCompanies(db, now);
 
   for (const job of db.select().from(jobs).where(where).all()) {
     const all = db.select().from(postings).where(eq(postings.jobId, job.id)).all();
@@ -155,25 +157,4 @@ export function runScoring(
 
   refreshLocalOffice(db, config.preferences);
   return summary;
-}
-
-/**
- * Recomputes Local Office for every Job: `posting` when its city is my city; `inherited` when another
- * Job of the same normalized company has a Local Office; `manual` (my correction) always prevails.
- */
-export function refreshLocalOffice(db: Db, prefs: Config["preferences"]): void {
-  const all = db.select().from(jobs).all();
-  const own = (j: Job) => (j.localOfficeSource === "manual" ? j.localOffice : isMyCity(j.city, prefs));
-  const companies = new Set(all.filter((j) => j.companyNorm && own(j)).map((j) => j.companyNorm));
-
-  for (const j of all) {
-    if (j.localOfficeSource === "manual") continue;
-    const next = isMyCity(j.city, prefs)
-      ? { localOffice: true, localOfficeSource: "posting" as const }
-      : j.companyNorm && companies.has(j.companyNorm)
-        ? { localOffice: true, localOfficeSource: "inherited" as const }
-        : { localOffice: false, localOfficeSource: null };
-    if (next.localOffice !== j.localOffice || next.localOfficeSource !== j.localOfficeSource)
-      db.update(jobs).set(next).where(eq(jobs.id, j.id)).run();
-  }
 }

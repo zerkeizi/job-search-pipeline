@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { parse } from "yaml";
 import { z } from "zod";
 
-const companyList = z.object({ enabled: z.boolean(), companies: z.array(z.string()) });
+// Which companies to collect is no longer configured here: follow them in the panel (Companies tab).
+const companyList = z.object({ enabled: z.boolean() });
 
 export const configSchema = z.object({
   preferences: z.object({

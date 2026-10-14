@@ -1,16 +1,17 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Config } from "./config.js";
 import type { BaseCv } from "./cv/schema.js";
 import type { Db } from "./db/index.js";
-import { collectorState, type Job, jobs, postings } from "./db/schema.js";
+import { collectorState, companies, companyBoards, companyNames, type Job, jobs, postings } from "./db/schema.js";
 import { descriptionSimilarity, ORIGIN_SOURCES } from "./dedupe.js";
 import { applyTailoring, contentOf, cvFileName, partsOf, readAnalysis, type StoredAnalysis } from "./generate.js";
 import { guard } from "./guard.js";
 import { isPreferredJob } from "./location.js";
+import { normalizeCompany } from "./normalize.js";
 import { fitCvToOnePage } from "./render.js";
-import { refreshLocalOffice } from "./scoring.js";
+import { followedBoards, refreshLocalOffice, setCompanyLocalOffice } from "./companies.js";
 import { SOURCES } from "./status.js";
 import type { TechMatcher } from "./tech.js";
 
@@ -73,6 +74,15 @@ const summaryOf = (db: Db, prefs: Config["preferences"], job: Job) => ({
   guardErrors: job.guardErrors ?? [],
   firstSeenAt: job.firstSeenAt,
   appliedAt: job.appliedAt,
+  companyId: job.companyId,
+  /** How many other Jobs of this Company I already applied to. */
+  appliedAtCompany: job.companyId
+    ? (db
+        .select({ n: sql<number>`count(*)` })
+        .from(jobs)
+        .where(and(eq(jobs.companyId, job.companyId), eq(jobs.status, "applied"), ne(jobs.id, job.id)))
+        .get()?.n ?? 0)
+    : 0,
 });
 
 export type JobSummary = ReturnType<typeof summaryOf>;
@@ -222,9 +232,13 @@ export function undoApplied(db: Db, id: string): void {
   db.update(jobs).set({ status: "generated", appliedAt: null }).where(eq(jobs.id, id)).run();
 }
 
-/** My Local Office correction (`manual` prevails); null clears it and lets the rules decide again. */
+/**
+ * My Local Office correction. It belongs to the Company (all its Jobs follow, `manual` prevails);
+ * a Job without a Company keeps it on the Job. null clears it and lets the rules decide again.
+ */
 export function setLocalOffice(deps: ReviewDeps, id: string, value: boolean | null): void {
-  getJob(deps.db, id);
+  const job = getJob(deps.db, id);
+  if (job.companyId) return setCompanyLocalOffice(deps.db, job.companyId, value, deps.config.preferences);
   deps.db
     .update(jobs)
     .set(value === null ? { localOffice: false, localOfficeSource: null } : { localOffice: value, localOfficeSource: "manual" })
@@ -308,7 +322,7 @@ export function collectorStatus(deps: ReviewDeps, now = new Date()) {
   const enabled = (s: string): boolean => {
     if (["linkedin", "indeed", "glassdoor", "google"].includes(s))
       return sources.jobspy.enabled && (sources.jobspy.sites as string[]).includes(s);
-    if (s === "greenhouse" || s === "lever" || s === "ashby") return sources[s].enabled && sources[s].companies.length > 0;
+    if (s === "greenhouse" || s === "lever" || s === "ashby") return sources[s].enabled && followedBoards(deps.db, s).length > 0;
     if (s === "gupy" || s === "remotive") return sources[s].enabled;
     return false;
   };
@@ -323,4 +337,56 @@ export function collectorStatus(deps: ReviewDeps, now = new Date()) {
       blockedUntil: blocked ? r!.blockedUntil : null,
     };
   });
+}
+
+/** The company catalog: followed first, then by how many fitting jobs their boards have, then by Jobs collected. */
+export function listCompanies(deps: ReviewDeps) {
+  const { db } = deps;
+  const boards = db.select().from(companyBoards).all();
+  const names = db.select().from(companyNames).all();
+  const jobRows = db
+    .select({ companyId: jobs.companyId, status: jobs.status, score: jobs.score, lastSeenAt: jobs.lastSeenAt })
+    .from(jobs)
+    .all();
+  return db
+    .select()
+    .from(companies)
+    .all()
+    .map((c) => {
+      const own = jobRows.filter((j) => j.companyId === c.id);
+      const b = boards.filter((x) => x.companyId === c.id);
+      return {
+        id: c.id,
+        name: c.name,
+        aliases: names.filter((n) => n.companyId === c.id && n.nameNorm !== normalizeCompany(c.name)).map((n) => n.nameNorm),
+        followed: c.followed,
+        localOffice: c.localOffice,
+        localOfficeSource: c.localOfficeSource,
+        notes: c.notes,
+        boards: b.map((x) => ({
+          ats: x.ats,
+          slug: x.slug,
+          discoveredFrom: x.discoveredFrom,
+          checkStatus: x.checkStatus,
+          checkError: x.checkError,
+          checkedAt: x.checkedAt,
+          openJobs: x.openJobs,
+          devJobs: x.devJobs,
+          fitJobs: x.fitJobs,
+        })),
+        fitJobs: b.reduce((n, x) => n + (x.fitJobs ?? 0), 0),
+        jobs: own.length,
+        applied: own.filter((j) => j.status === "applied").length,
+        bestScore: own.reduce<number | null>((m, j) => (j.score !== null && (m === null || j.score > m) ? j.score : m), null),
+        lastSeenAt: own.reduce<string | null>((m, j) => (m === null || j.lastSeenAt > m ? j.lastSeenAt : m), null),
+      };
+    })
+    .sort(
+      (a, b) =>
+        Number(b.followed) - Number(a.followed) ||
+        b.fitJobs - a.fitJobs ||
+        b.boards.length - a.boards.length ||
+        b.jobs - a.jobs ||
+        a.name.localeCompare(b.name),
+    );
 }

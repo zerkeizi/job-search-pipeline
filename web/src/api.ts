@@ -19,6 +19,8 @@ export interface JobSummary {
   guardErrors: string[];
   firstSeenAt: string;
   appliedAt: string | null;
+  companyId: string | null;
+  appliedAtCompany: number;
 }
 
 export interface Analysis {
@@ -51,6 +53,34 @@ export interface AnalysisPair {
   job: JobSummary & { lastSeenAt: string; description: string };
   candidate: (JobSummary & { lastSeenAt: string; description: string }) | null;
   similarity: number | null;
+}
+
+export interface CompanyBoard {
+  ats: "greenhouse" | "lever" | "ashby";
+  slug: string;
+  discoveredFrom: "posting" | "import";
+  checkStatus: "unchecked" | "ok" | "not_found" | "error";
+  checkError: string | null;
+  checkedAt: string | null;
+  openJobs: number | null;
+  devJobs: number | null;
+  fitJobs: number | null;
+}
+
+export interface CompanyRow {
+  id: string;
+  name: string;
+  aliases: string[];
+  followed: boolean;
+  localOffice: boolean;
+  localOfficeSource: "posting" | "manual" | null;
+  notes: string | null;
+  boards: CompanyBoard[];
+  fitJobs: number;
+  jobs: number;
+  applied: number;
+  bestScore: number | null;
+  lastSeenAt: string | null;
 }
 
 export interface CollectorRow {
@@ -99,4 +129,9 @@ export const api = {
   merge: (id: string) => call("POST", `/api/analysis/${id}/merge`),
   keep: (id: string) => call<{ ok: true; queued: boolean }>("POST", `/api/analysis/${id}/keep`),
   collectors: () => call<CollectorRow[]>("GET", "/api/collectors"),
+  companies: () => call<CompanyRow[]>("GET", "/api/companies"),
+  follow: (id: string, followed: boolean) => call("POST", `/api/companies/${id}/follow`, { followed }),
+  renameCompany: (id: string, name: string) => call("POST", `/api/companies/${id}/rename`, { name }),
+  mergeCompany: (id: string, into: string) => call("POST", `/api/companies/${id}/merge`, { into }),
+  companyLocalOffice: (id: string, value: boolean | null) => call("PUT", `/api/companies/${id}/local-office`, { value }),
 };

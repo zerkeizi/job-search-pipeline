@@ -9,7 +9,8 @@ import { ingest, type PostingIn } from "../src/ingest.js";
 import { detectLanguage } from "../src/language.js";
 import { cityFromLocation, isMyCity, isPreferredJob, officeDaysFromText, workplaceFromText } from "../src/location.js";
 import { prefilter, type PrefilterInput } from "../src/prefilter.js";
-import { refreshLocalOffice, runScoring, scoreJob } from "../src/scoring.js";
+import { setCompanyLocalOffice } from "../src/companies.js";
+import { runScoring, scoreJob } from "../src/scoring.js";
 import { TechMatcher } from "../src/tech.js";
 
 const config = loadConfig();
@@ -162,22 +163,30 @@ describe("runScoring", () => {
 });
 
 describe("Local Office", () => {
-  it("is inherited by Jobs of the same company, and a manual value prevails", () => {
+  it("belongs to the Company: Jobs inherit it, and my manual correction prevails", () => {
     const { db, deps, byTitle } = setup(
       { title: "Full Stack Developer", company: "Acme Ltda.", location: "Porto Alegre, RS" },
       { title: "Backend Developer", company: "ACME", location: "São Paulo" },
       { title: "Frontend Developer", company: "Acme", location: "Remote" },
+      { title: "Platform Developer", company: "Other", location: "Remote" },
     );
     runScoring(deps, {}, NOW);
-    expect(byTitle("Backend Developer")).toMatchObject({ localOffice: true, localOfficeSource: "inherited" });
-
-    db.update(jobs).set({ localOffice: false, localOfficeSource: "manual" }).where(eq(jobs.title, "Frontend Developer")).run();
-    refreshLocalOffice(db, prefs);
-    expect(byTitle("Frontend Developer")).toMatchObject({ localOffice: false, localOfficeSource: "manual" });
+    const acme = byTitle("Full Stack Developer").companyId!;
+    expect(byTitle("Backend Developer").companyId).toBe(acme);
     expect(byTitle("Full Stack Developer")).toMatchObject({ localOffice: true, localOfficeSource: "posting" });
+    expect(byTitle("Backend Developer")).toMatchObject({ localOffice: true, localOfficeSource: "inherited" });
+    expect(byTitle("Platform Developer")).toMatchObject({ localOffice: false, localOfficeSource: null });
 
-    db.update(jobs).set({ localOffice: false, localOfficeSource: "manual" }).where(eq(jobs.title, "Full Stack Developer")).run();
-    refreshLocalOffice(db, prefs);
-    expect(byTitle("Backend Developer")).toMatchObject({ localOffice: false, localOfficeSource: null });
+    setCompanyLocalOffice(db, acme, false, prefs);
+    for (const t of ["Full Stack Developer", "Backend Developer", "Frontend Developer"])
+      expect(byTitle(t)).toMatchObject({ localOffice: false, localOfficeSource: "manual" });
+    runScoring(deps, { all: true }, NOW);
+    expect(byTitle("Full Stack Developer")).toMatchObject({ localOffice: false, localOfficeSource: "manual" });
+
+    setCompanyLocalOffice(db, byTitle("Platform Developer").companyId!, true, prefs);
+    expect(byTitle("Platform Developer")).toMatchObject({ localOffice: true, localOfficeSource: "manual" });
+
+    setCompanyLocalOffice(db, acme, null, prefs);
+    expect(byTitle("Backend Developer")).toMatchObject({ localOffice: true, localOfficeSource: "inherited" });
   });
 });

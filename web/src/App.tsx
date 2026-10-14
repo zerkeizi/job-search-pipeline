@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { type AnalysisPair, api, type CollectorRow, type JobSummary } from "./api.js";
 import { JobView } from "./JobView.js";
+import { Companies } from "./Companies.js";
 import { Queue } from "./Queue.js";
 
-type Tab = "generated" | "queue" | "applied" | "analysis" | "collectors";
+type Tab = "generated" | "queue" | "applied" | "analysis" | "companies" | "collectors";
 
 export function App() {
   const [tab, setTab] = useState<Tab>("generated");
@@ -30,6 +31,9 @@ export function App() {
           <button className={tab === "analysis" ? "active" : ""} onClick={() => setTab("analysis")}>
             Analysis <span className="count">{counts.analysis}</span>
           </button>
+          <button className={tab === "companies" ? "active" : ""} onClick={() => setTab("companies")}>
+            Companies
+          </button>
           <button className={tab === "collectors" ? "active" : ""} onClick={() => setTab("collectors")}>
             Collectors
           </button>
@@ -39,6 +43,7 @@ export function App() {
       {tab === "queue" && <Queue onCount={(n) => setCounts((c) => ({ ...c, queue: n }))} />}
       {tab === "applied" && <Generated key="applied" view="applied" onCount={(n) => setCounts((c) => ({ ...c, applied: n }))} />}
       {tab === "analysis" && <AnalysisTab onCount={(n) => setCounts((c) => ({ ...c, analysis: n }))} />}
+      {tab === "companies" && <Companies />}
       {tab === "collectors" && <Collectors />}
     </div>
   );

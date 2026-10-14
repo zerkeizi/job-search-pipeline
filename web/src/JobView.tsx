@@ -337,6 +337,9 @@ export function Facts({ job, onChange }: { job: JobDetail; onChange: (v: boolean
           <option value="false">no (manual)</option>
         </select>
       </span>
+      {job.appliedAtCompany > 0 && (
+        <span className="badge warn">already applied {job.appliedAtCompany}× at this company</span>
+      )}
       <span>
         <strong>Sources</strong>{" "}
         {job.postings.map((p, i) => (

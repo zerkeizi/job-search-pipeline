@@ -52,8 +52,8 @@ export function toLeverPosting(raw: unknown, company: string): PostingIn | null 
   };
 }
 
-export const collectLever: ApiCollector = async function* ({ config, http, since }) {
-  for (const company of config.sources.lever.companies) {
+export const collectLever: ApiCollector = async function* ({ http, since, boards }) {
+  for (const company of boards) {
     try {
       const body = z.array(z.unknown()).parse(JSON.parse(await http.get(`https://api.lever.co/v0/postings/${encodeURIComponent(company)}?mode=json`)));
       const items = body.map((j) => toLeverPosting(j, company)).filter((p): p is PostingIn => p !== null && after(p.postedAt, since));

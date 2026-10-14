@@ -42,8 +42,8 @@ export function toAshbyPosting(raw: unknown, board: string): PostingIn | null {
   };
 }
 
-export const collectAshby: ApiCollector = async function* ({ config, http, since }) {
-  for (const board of config.sources.ashby.companies) {
+export const collectAshby: ApiCollector = async function* ({ http, since, boards }) {
+  for (const board of boards) {
     try {
       const body = JSON.parse(await http.get(`https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(board)}`));
       const jobs = z.object({ jobs: z.array(z.unknown()) }).parse(body).jobs;

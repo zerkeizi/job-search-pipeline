@@ -84,7 +84,8 @@ collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → p
 │   ├── dedupe.ts
 │   ├── normalize.ts         # normalização de empresa/título
 │   ├── prefilter.ts
-│   ├── scoring.ts           # score determinístico (sem LLM) + Local Office
+│   ├── scoring.ts           # score determinístico (sem LLM)
+│   ├── companies.ts         # Company, Boards, descoberta/importação/conferência, Merge, Local Office
 │   ├── location.ts          # extração de workplace/city/office_days + Preferred Job
 │   ├── language.ts          # detecção de idioma
 │   ├── llm.ts               # wrapper do `claude -p` (assinatura)
@@ -122,8 +123,9 @@ Termos definidos em `GLOSSARY.md`. Resumo:
 - **Posting** — um anúncio numa fonte. Imutável depois de coletado.
 - **Job** — a vaga real por trás de um ou mais Postings. Score, Gaps, CV gerado e status pertencem ao Job ([ADR 0001](docs/adr/0001-postings-and-jobs-with-deterministic-dedupe.md)).
 - **Base CV** (`cv/base.yaml`) — os fatos. **Search Preferences** (`config.yaml > preferences`) — o que eu procuro. 
-- Pode haver vários Jobs da mesma empresa; não existe regra de "uma vaga por empresa".
-- **Local Office** — a empresa do Job tem escritório na minha cidade. **Preferred Job** — Job com Local Office, `workplace != 'onsite'` e `office_days` nulo ou `<= preferences.max_office_days_per_week`. É calculado, nunca armazenado. Vagas remotas de qualquer lugar (outro estado, empresa estrangeira) continuam bem-vindas; só perdem prioridade.
+- **Company** — o empregador por trás dos Jobs, identificado pelo nome normalizado (e aliases). **Board** — o job board público de uma Company num ATS (Greenhouse, Lever ou Ashby) ([ADR 0006](docs/adr/0006-company-entity-with-boards.md)).
+- Pode haver vários Jobs da mesma empresa; não existe regra de "uma vaga por empresa". O painel avisa quando já me candidatei a outro Job da mesma Company.
+- **Local Office** — a Company do Job tem escritório na minha cidade (um Job dela está aqui, ou eu disse que sim). **Preferred Job** — Job com Local Office, `workplace != 'onsite'` e `office_days` nulo ou `<= preferences.max_office_days_per_week`. É calculado, nunca armazenado. Vagas remotas de qualquer lugar (outro estado, empresa estrangeira) continuam bem-vindas; só perdem prioridade.
 
 ### Tabelas
 
@@ -152,7 +154,8 @@ Termos definidos em `GLOSSARY.md`. Resumo:
 | `workplace`, `language` (`en`/`pt`/`es`, detectado no pré-filtro) | |
 | `city` | cidade do escritório conforme a vaga (Posting ou extraída da descrição); nula se não informada |
 | `office_days` | dias presenciais por semana, quando a vaga informa; nulo caso contrário |
-| `local_office`, `local_office_source` | bool + origem: `posting` (a própria vaga), `inherited` (outro Job da mesma empresa normalizada tem `true`) ou `manual` (eu corrigi no painel; prevalece sobre as outras) |
+| `company_id` | Company do Job (pelo nome normalizado; nulo só em vaga manual antes do tailoring) |
+| `local_office`, `local_office_source` | cópia do Local Office da Company, com a origem vista deste Job: `posting` (este Job está na minha cidade), `inherited` (outro Job da Company está) ou `manual` (eu corrigi a Company; prevalece) |
 | `description_posting_id` | Posting cuja descrição é usada no scoring e no tailoring |
 | `apply_url` | escolhido entre os Postings: fonte de origem (Gupy/Greenhouse/Lever/Ashby) primeiro |
 | `first_seen_at`, `last_seen_at` | |
@@ -162,6 +165,12 @@ Termos definidos em `GLOSSARY.md`. Resumo:
 | `guard_errors` | violações quando `status = blocked` |
 | `page_warning` | CV gerado passou de 1 página |
 | `discard_reason`, `notes`, `applied_at` | |
+
+**`companies`** — `name`, `local_office` + `local_office_source` (`posting` \| `manual`), `followed`, `notes`.
+
+**`company_names`** — todo nome normalizado pelo qual uma Company é conhecida (o próprio e os aliases vindos de Merge) → `company_id`. É por aqui que um Job encontra sua Company.
+
+**`company_boards`** — `company_id`, `ats` (`greenhouse` \| `lever` \| `ashby`), `slug` (único por ATS), `discovered_from` (`posting` \| `import`), `guessed` (slug importado sem ATS), `check_status` (`unchecked` \| `ok` \| `not_found` \| `error`), `checked_at`, `open_jobs`, `dev_jobs` (passam nos filtros de título), `fit_jobs` (desses, remotos ou no Brasil/América Latina).
 
 **`collector_state`** — por fonte: `last_success_at`, `blocked_until`, `last_count` (Postings da última coleta bem-sucedida).
 
@@ -263,7 +272,15 @@ Os coletores de API pública são `ApiCollector` (`src/collectors/types.ts`): re
 
 - **JobSpy (sidecar)** — LinkedIn, Indeed, Glassdoor e Google Jobs, deslogado.
 - **Gupy** — o endpoint JSON antigo do portal não existe mais (404). A página pública de busca (`portal.gupy.io/job-search/term=<q>`, deslogada) traz as vagas — com descrição completa — no JSON `__NEXT_DATA__`; o coletor lê a primeira página (12 vagas) por termo. Se o layout mudar, o coletor falha com erro claro.
-- **Greenhouse / Lever / Ashby** — APIs públicas de job board por empresa (`boards-api.greenhouse.io/v1/boards/<board>/jobs?content=true`, `api.lever.co/v0/postings/<empresa>?mode=json`, `api.ashbyhq.com/posting-api/job-board/<board>`); lista de empresas-alvo em `config.yaml`. Uma empresa com erro (ex.: nome errado) não para as outras.
+- **Greenhouse / Lever / Ashby** — APIs públicas de job board por empresa (`boards-api.greenhouse.io/v1/boards/<board>/jobs?content=true`, `api.lever.co/v0/postings/<empresa>?mode=json`, `api.ashbyhq.com/posting-api/job-board/<board>`); coletam os Boards das Companies que eu sigo (aba Companies do painel; não há mais lista no `config.yaml`). Um Board com erro não para os outros.
+
+### Catálogo de empresas (`src/companies.ts`, [ADR 0006](docs/adr/0006-company-entity-with-boards.md))
+- **Vínculo Job → Company:** depois de cada `ingest` (e no início do `score`, do `review` e depois do `generate`), `syncCompanies` liga Jobs sem Company pelo nome normalizado, criando a Company se for nova.
+- **Descoberta automática:** um Posting cujo link é de Greenhouse/Lever/Ashby (pelo `url_key`; ou um Posting dessas fontes) revela o Board da Company, sem requisição extra. Links curtos (`grnh.se`) e `?gh_jid=` no site da empresa não dizem o Board.
+- **Importação:** `jobpipe companies import <arquivo>` — uma linha por Board: URL do board, `ats:slug`, ou slug solto (vira palpite nos três ATS; a conferência apaga os que não existem). Board novo ganha uma Company com o nome do slug até descobrir o nome real.
+- **Conferência:** `jobpipe companies check [--all]` — uma requisição por Board (os não conferidos, com erro, ou conferidos há mais de 7 dias), pelo mesmo cliente HTTP educado dos coletores; 404 → `not_found`; bloqueio para aquele ATS até a meia-noite. Registra vagas abertas, de dev e as que servem. Se o Board informa o nome da empresa (Greenhouse), a Company com nome de slug é renomeada — ou juntada à Company que já tem esse nome.
+- **Decisões minhas (painel):** Follow/Unfollow, Rename (o nome novo vira também um nome da Company; se for de outra Company, é Merge), **Merge** (nomes viram aliases; Boards e Jobs passam para a outra; segue se qualquer uma seguia; meu Local Office manual prevalece) e Local Office manual da Company.
+- `jobpipe companies list` mostra no terminal as Companies com Boards.
 - **Remotive** — `remotive.com/api/remote-jobs?category=software-development`. Termos deles: no máximo ~4 requisições por dia (`sources.remotive.min_interval_hours: 6`), vagas com 24h de atraso, e sempre manter o link para a vaga na Remotive (é o `url`/`apply_url` do Posting).
 - **Manual** — `jobpipe add <arquivo.txt> [--url <link>]`: texto da vaga colado num `.txt`; `--url` só preenche `url`/`apply_url`. Vaga manual **pula o pré-filtro e o limiar de score** (vai para tailoring mesmo com score baixo), mas passa pelo scoring para gerar matches e Gaps.
 
@@ -288,7 +305,7 @@ Para poupar a cota da assinatura, o scoring não chama modelo nenhum ([ADR 0005]
   - **senioridade** = 1 se o título traz um de `preferences.seniority`; 0,7 se não diz; 0,3 se diz outro nível (especialista, staff, principal…).
   - `score_reason` resume as três partes (ex.: `tech 69% (core 4/4, all 7/15), title "full stack", seniority not stated`).
 - **Calibração (fase 5, 27 vagas reais):** vagas Node/React/full stack ficaram em 75–77; React Native/React sênior em 68–71; JS full stack com Java/Kotlin no meio em 65–69; vagas Java, .NET, C# e Kotlin em 36–63. O limiar `thresholds.generate: 70` foi mantido (4 de 18 vagas passaram); baixar para 65 incluiria mais 4.
-- Depois do scoring, recalcular `local_office` de todos os Jobs (`refreshLocalOffice`): `true` (origem `posting`) se `city` corresponde a `preferences.city`; `true` (origem `inherited`) se outro Job da mesma empresa normalizada tem Local Office; `manual` nunca é sobrescrito e também propaga. Recalculado também depois do `generate`, já que o tailoring corrige a cidade.
+- Depois do scoring, recalcular o Local Office (`refreshLocalOffice`, em `src/companies.ts`): a Company tem Local Office (`posting`) se algum Job dela tem `city` = `preferences.city`, ou `manual` se eu corrigi (prevalece). Cada Job mostra `manual` (correção na Company), `posting` (ele mesmo está na minha cidade) ou `inherited` (outro Job da Company está). Job sem Company (vaga manual antes do tailoring) só usa a própria cidade. Recalculado também depois do `generate` (o tailoring corrige a cidade) e de cada correção no painel.
 - Jobs com `analysis_candidate_job_id` e score ≥ limiar → `analysis`. Os demais com `score >= thresholds.generate` (70) seguem para tailoring, até `limits.generate_per_run` (10) por execução, ordenados **primeiro vagas manuais, depois Preferred Jobs, depois por score**. O score mede só aderência ao CV; a preferência de localização nunca altera o score. O excedente fica `scored` e entra na próxima execução.
 - Vaga manual (`jobpipe add`) também é pontuada (score, matches e Gaps), mas ignora o pré-filtro, o limiar e o Analysis.
 - `jobpipe score --all` reavalia também Jobs `filtered_out`, `scored` e `analysis` (ex.: depois de mudar o `config.yaml` ou o Tech Lexicon).
@@ -362,6 +379,7 @@ Interface em inglês.
 - **Queue**: Jobs `scored` (fila do tailoring), na ordem em que o `generate` os pega — acima do limiar primeiro (Preferred Jobs, depois score), depois os abaixo do limiar, separados por um divisor. Mostra descrição, `score_reason`, matches/Gaps determinísticos e Local Office. Botões **Generate now ▾** (CV + cover letter, CV only ou Cover letter only; com confirmação; gasta cota; vale também para Job abaixo do limiar), **Mark as applied** (para vagas em que me candidatei sem gerar nada aqui), **Discard** e **Open job link**.
 - **Applied**: Jobs `applied`, do mais recente para o mais antigo, só leitura (CV, cover letter, descrição). Botão **Undo applied** (com confirmação) para um clique por engano: volta para `generated`.
 - **Analysis**: o Job e o candidato a duplicata lado a lado (empresa, título, datas, descrições, similaridade). Botões **Merge** e **Keep separate**. Keep separate não gera nada na hora: o Job volta para `scored` (fila do tailoring, já que está acima do limiar) e aparece em Generated depois do próximo `jobpipe generate`; o painel avisa isso. O Job existente não muda.
+- **Companies**: o catálogo — por Company: nomes (aliases), Boards com as contagens da última conferência (servem / dev / abertas) e link, Jobs coletados, quantas vezes me candidatei, melhor score, Local Office (com correção manual). Filtro "com Boards" / "seguidas" / todas e busca. Botões **Follow/Unfollow** (só para Company com Board que existe), **Rename**, **Merge…**.
 - **Collectors**: status de cada fonte (última coleta bem-sucedida, bloqueio até quando, último volume).
 - Sem funil, sem taxa de resposta, sem export CSV.
 
@@ -421,6 +439,9 @@ pnpm jobpipe generate [--limit 10] [--only cv|cover-letter]  # tailoring + guard
 pnpm jobpipe run [--force]                           # collect → score → generate
 pnpm jobpipe add <arquivo.txt> [--url <link>]        # vaga manual
 pnpm jobpipe review [--port 4321]                    # build + sobe API e painel em localhost
+pnpm jobpipe companies import <arquivo>              # Boards de uma lista (URLs, ats:slug ou slug)
+pnpm jobpipe companies check [--all]                 # confere cada Board (1 requisição) e conta vagas
+pnpm jobpipe companies list                          # Companies com Boards, seguidas primeiro
 pnpm jobpipe stats                                   # vagas por status, tokens/custo equivalente do mês, última leitura de cota, coletores
 pnpm jobpipe doctor                                  # checa node, uv, sidecar, playwright, login do claude, ausência de API key
 ```
@@ -461,9 +482,9 @@ sources:
     results_wanted: 30
     fetch_description: true
   gupy: { enabled: true, queries: ["full stack", "node", "react"] }
-  greenhouse: { enabled: true, companies: [] }
-  lever: { enabled: true, companies: [] }
-  ashby: { enabled: true, companies: [] }
+  greenhouse: { enabled: true }   # coleta os Boards das Companies seguidas no painel
+  lever: { enabled: true }
+  ashby: { enabled: true }
   remotive: { enabled: true, category: software-development, min_interval_hours: 6 }
 models:
   tailoring: sonnet   # alias aceito por `claude --model`

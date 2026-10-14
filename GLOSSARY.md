@@ -16,8 +16,16 @@ _Avoid_: vaga, opportunity, position
 Where the Job is performed: remote, hybrid, onsite, or unknown.
 _Avoid_: remote (as a yes/no)
 
+**Company**:
+The employer behind Jobs and job Boards. Identified by its normalized name; other names it is known by (from a Merge) are aliases. Local Office and "following" belong to the Company. See ADR 0006.
+_Avoid_: employer record, account
+
+**Board**:
+A Company's public job board on an ATS (Greenhouse, Lever or Ashby), identified by ATS + slug. Discovered from the links of collected Postings or imported; checked to count its open, developer and fitting roles. The Boards of followed Companies are collected.
+_Avoid_: careers page (that's the company's own site), job board (too broad: LinkedIn is a job board too)
+
 **Local Office**:
-The company behind a Job has an office in my city, whether the Job's own text says so or another Job from the same company revealed it.
+The Company behind a Job has an office in my city: one of its Jobs is located here, or I said so (manual, which prevails). Every Job of the Company shows it.
 _Avoid_: local job, in-city
 
 **Preferred Job**:

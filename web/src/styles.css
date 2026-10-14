@@ -111,6 +111,10 @@ details summary { cursor: pointer; font-size: 12px; margin: 4px 0; }
 
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
+input.search { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; min-width: 220px; }
+table.companies { width: 100%; }
+table.companies td { vertical-align: top; }
+tr.followed td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .menu { position: relative; }
 .menu-items { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; display: flex; flex-direction: column; min-width: 220px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgb(0 0 0 / .15); padding: 4px; }
 .menu-items button { border: none; text-align: left; border-radius: 6px; }
