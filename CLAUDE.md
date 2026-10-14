@@ -48,23 +48,26 @@ collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → p
 ### Estrutura de pastas
 ```
 .
+├── README.md              # como usar o sistema
 ├── CLAUDE.md
 ├── GLOSSARY.md
 ├── brainstorm.md
-├── .env.example
-├── config.yaml              # fontes, filtros, dedupe, limites, modelos, preços
+├── config.yaml              # preferências, filtros, dedupe, fontes, modelos, render, limites
 ├── package.json
 ├── docs/
 │   ├── adr/
 │   └── future-improvements.md
 ├── cv/
-│   ├── original.pdf         # CV original (referência visual)
+│   ├── original.pdf         # CV original (referência visual do template)
 │   ├── base.yaml            # Base CV — fonte da verdade, em inglês
 │   ├── aliases.yaml         # sinônimos de tecnologias (React ↔ ReactJS, K8s ↔ Kubernetes)
 │   ├── tech-lexicon.yaml    # Tech Lexicon — lista ampla de tecnologias do mercado
 │   └── template/            # cv.hbs + cv.css replicando o original
 ├── src/
 │   ├── collectors/
+│   │   ├── api.ts           # roda os coletores de API pública (bloqueio, janela, ingest)
+│   │   ├── http.ts          # GET educado, sem credenciais
+│   │   ├── types.ts
 │   │   ├── jobspy.ts        # wrapper do sidecar
 │   │   ├── gupy.ts
 │   │   ├── greenhouse.ts
@@ -72,16 +75,22 @@ collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → p
 │   │   ├── ashby.ts
 │   │   ├── remotive.ts
 │   │   └── manual.ts        # jobpipe add <arquivo.txt>
-│   ├── db/                  # schema drizzle + queries
-│   ├── schemas.ts           # zod
+│   ├── db/                  # schema drizzle, migrações, openDb
+│   ├── cv/                  # schema do Base CV, leitura de PDF (testes e layout)
+│   ├── config.ts            # schema zod do config.yaml
 │   ├── status.ts            # lista tipada de status
+│   ├── collector-state.ts   # janela de coleta, bloqueio até meia-noite, log de coleta
+│   ├── ingest.ts            # grava Postings aplicando o dedupe
 │   ├── dedupe.ts
+│   ├── normalize.ts         # normalização de empresa/título
 │   ├── prefilter.ts
 │   ├── scoring.ts           # score determinístico (sem LLM) + Local Office
 │   ├── location.ts          # extração de workplace/city/office_days + Preferred Job
 │   ├── language.ts          # detecção de idioma
 │   ├── llm.ts               # wrapper do `claude -p` (assinatura)
-│   ├── tailoring.ts
+│   ├── tailoring.ts         # prompt + schema zod da saída (por modo)
+│   ├── generate.ts          # tailoring → guard → render → output/
+│   ├── tech.ts              # TechMatcher (Tech Lexicon + aliases)
 │   ├── guard.ts             # checagem anti-invenção
 │   ├── render.ts
 │   ├── usage.ts             # log de tokens, custo equivalente e cota
@@ -89,18 +98,19 @@ collectors (TS + sidecar Python) → Postings → dedupe (Posting → Job) → p
 │   ├── review.ts            # operações do painel
 │   ├── server.ts            # API hono para o painel
 │   └── cli.ts               # entrypoint
-├── web/                     # painel de revisão (Vite + React)
+├── web/                     # painel de revisão (Vite + React); build vai para uma pasta temporária
 ├── sidecar/
 │   └── jobspy/
 │       ├── pyproject.toml
 │       ├── jobspy_sidecar/__main__.py
 │       └── tests/
 ├── prompts/                 # prompts versionados em .md
-├── output/<job_id>/         # cv.pdf, cover_letter.md, analysis.json
+├── output/<job_id>/         # Nicolas_Villanova_CV_<Empresa>.pdf, cover_letter.md, analysis.json
 ├── data/
 │   ├── jobs.db
 │   └── logs/                # <data>_usage.log, <data>_collector.log
-└── tests/
+├── scripts/compare-layout.ts # pnpm layout
+└── tests/                   # vitest; fixtures (claude e sidecar falsos, cópia congelada do Base CV)
 ```
 
 ---
@@ -125,6 +135,7 @@ Termos definidos em `GLOSSARY.md`. Resumo:
 | `job_id` | Job ao qual o Posting pertence |
 | `source` | `linkedin`, `indeed`, `glassdoor`, `google`, `gupy`, `greenhouse`, `lever`, `ashby`, `remotive`, `manual` |
 | `external_id`, `url`, `apply_url` | `apply_url` = `job_url_direct` quando existir |
+| `url_key` | forma canônica do `apply_url` (ou `url`), usada pela regra 2 do dedupe |
 | `company`, `title`, `location` | como vieram da fonte |
 | `workplace` | `remote` \| `hybrid` \| `onsite` \| `unknown` |
 | `salary_min`, `salary_max`, `salary_currency`, `salary_interval` | quando disponível |
@@ -209,14 +220,14 @@ Um Posting ligado a um Job existente **não** dispara novo scoring nem novo tail
 
 Chamada (feita por `src/collectors/jobspy.ts` via `child_process.spawn`, nunca via shell com interpolação de string):
 ```
-uv run --project sidecar/jobspy python -m jobspy_sidecar
+uv run --project . python -m jobspy_sidecar      # cwd = sidecar/jobspy
 ```
 - **Entrada:** JSON no stdin
   ```json
   {
     "sites": ["linkedin", "indeed", "glassdoor", "google"],
     "search_term": "full stack developer",
-    "google_search_term": "full stack developer jobs remote since yesterday",
+    "google_search_term": "full stack developer jobs in Brazil",
     "location": "Brazil",
     "country_indeed": "Brazil",
     "is_remote": false,
@@ -248,7 +259,7 @@ Testes do sidecar: `pytest` com respostas do JobSpy mockadas (sem rede). Testes 
 ## Etapas do pipeline
 
 ### 1. Coletores (`src/collectors/`)
-Cada coletor implementa `collect(config): Promise<PostingIn[]>` e é independente; falha de um não derruba os outros. A mesma regra de janela (desde a última coleta bem-sucedida + margem, com limite) vale para os coletores que aceitam filtro por data.
+Os coletores de API pública são `ApiCollector` (`src/collectors/types.ts`): recebem `{ config, http, since }` e devolvem um lote (`Batch`: alvo, Postings, erro opcional) por termo de busca ou empresa, que `src/collectors/api.ts` grava na hora (`ingest`). O JobSpy tem seu próprio wrapper (`src/collectors/jobspy.ts`). Cada fonte é independente; falha de uma (ou de um alvo) não derruba as outras. A mesma regra de janela (desde a última coleta bem-sucedida + margem, com limite) vale para os coletores que aceitam filtro por data.
 
 - **JobSpy (sidecar)** — LinkedIn, Indeed, Glassdoor e Google Jobs, deslogado.
 - **Gupy** — o endpoint JSON antigo do portal não existe mais (404). A página pública de busca (`portal.gupy.io/job-search/term=<q>`, deslogada) traz as vagas — com descrição completa — no JSON `__NEXT_DATA__`; o coletor lê a primeira página (12 vagas) por termo. Se o layout mudar, o coletor falha com erro claro.
@@ -285,7 +296,7 @@ Para poupar a cota da assinatura, o scoring não chama modelo nenhum ([ADR 0005]
 ### 4. Tailoring (modelo forte)
 - Modelo: `models.tailoring` (padrão: `sonnet`), chamado via `src/llm.ts`.
 - Entrada: Base CV **sem** Education/Languages (Tech Skills só como contexto somente leitura) + descrição do Job + matches/gaps determinísticos + orçamento de linhas.
-- Também devolve `workplace`, `office_city` e `office_days_per_week` lidos da descrição, que corrigem os valores extraídos por regra.
+- Também devolve, no objeto `job`, empresa, título, `workplace`, `office_city` e `office_days_per_week` lidos da descrição, que corrigem os valores extraídos por regra (empresa e título só são usados em vaga manual).
 - Tarefas:
   1. Identificar as skills, keywords, tecnologias e experiências mais importantes da vaga.
   2. Comparar com o Base CV: strong matches e Gaps.
@@ -302,11 +313,15 @@ Para poupar a cota da assinatura, o scoring não chama modelo nenhum ([ADR 0005]
     "experience": [{ "company": "", "bullets": [] }],
     "cover_letter": "",
     "changes_rationale": [{ "original": "", "rewritten": "", "why": "" }],
-    "workplace": "remote | hybrid | onsite | unknown",
-    "office_city": null,
-    "office_days_per_week": null
+    "job": {
+      "company": "", "title": "",
+      "workplace": "remote | hybrid | onsite | unknown",
+      "office_city": null,
+      "office_days_per_week": null
+    }
   }
   ```
+  (No modo `cv` sai sem `cover_letter`; no modo `cover_letter`, só `keywords`, `strong_matches`, `gaps`, `cover_letter` e `job`.)
 - Mesma quantidade de empresas, mesma ordem, mesmos cargos e datas do Base CV.
 - **Bullets por empresa:** no mínimo 3 (ou todos, se o Base CV tiver menos de 3 para aquela empresa); pode ter mais quando a vaga tiver muitos pontos em comum com aquela experiência. Bullets podem ser reescritos, encurtados ou fundidos — nunca inventados (o guard verifica).
 - **Orçamento de linhas:** o CV final tem 1 página. Antes do tailoring, calcular de forma determinística, a partir do template, quantas linhas de texto cabem depois do cabeçalho e das seções fixas; o prompt recebe esse número (para o summary + bullets) e escreve dentro dele.
@@ -329,7 +344,7 @@ Mensagem para edição minha bloqueada: deixar claro que, se for verdade, o luga
 
 ### 6. Render
 - `cv/template/cv.hbs` + `cv.css` replicam o `original.pdf` (fontes, cores, tamanhos, margens, espaçamentos, ordem das seções).
-- Playwright gera `output/<job_id>/cv.pdf`. Nome final do arquivo: `Nicolas_Villanova_CV_<Empresa>.pdf`.
+- Playwright gera o PDF em `output/<job_id>/Nicolas_Villanova_CV_<Empresa>.pdf`.
 - Fonte: Times New Roman, lida de `render.font_dir` (instalação do Windows, `/mnt/c/Windows/Fonts`) — nunca copiada para o repositório.
 - Fidelidade ao Google Docs (origem do `original.pdf`): kerning e hinting desligados; layout feito com zoom 6× e impresso em escala 1/6 (o Chromium arredonda alturas de linha para px inteiros); margens de página via `@page`; tamanho final da página ajustado com `pdf-lib` para 596×842pt. Detalhes nos comentários de `src/render.ts` e `cv/template/cv.css`.
 - Teste de regressão (`tests/render.test.ts`): renderizar a cópia congelada do Base CV original (`tests/fixtures/base-original.yaml`, não editar; o `base.yaml` pode mudar à vontade) e comparar com `original.pdf` — mesmo número de páginas, cada linha de texto a menos de 0,5pt da posição original, e diferença de pixels (`pdf-to-img` + `pixelmatch`) abaixo de 2% por página.
@@ -391,7 +406,7 @@ quota remaining: 5h 79% (resets 19:00) · 7d 95% (resets 18/10 21:00)
 - **Cota** = percentual usado/restante das janelas de 5h e 7 dias da assinatura, com horário de reset, vindo do `rate_limit_event`. A assinatura não expõe saldo em tokens, só percentual.
 - *(Números do exemplo são ilustrativos.)*
 
-**`<YYYY-MM-DD>_collector.log`** — por fonte: quantidade, duração, bloqueios, janela usada; resumo no fim da coleta.
+**`<YYYY-MM-DD>_collector.log`** — uma linha por fonte (e por termo de busca, no JobSpy): janela usada, quantidade recebida, novos/ligados/duplicatas possíveis/já vistos, duração, bloqueios e falhas. O resumo da coleta sai no terminal.
 
 `jobpipe stats` (`src/stats.ts`) mostra: Jobs por status; Jobs novos e aplicados no mês; chamadas de LLM, tokens e custo equivalente somados dos `*_usage.log` do mês (por etapa); a **última leitura de cota** registrada (a assinatura só informa a cota durante uma chamada, então não existe "cota atual" sem gastar cota; se o horário de reset de uma janela já passou, aparece "reset since"); e, por coletor, a última coleta bem-sucedida, o volume e bloqueios ativos.
 
@@ -471,7 +486,7 @@ limits:
 
 ## Ordem de construção
 
-Fazer uma fase por vez, com testes, e me mostrar o resultado antes de seguir.
+Fazer uma fase por vez, com testes, e me mostrar o resultado antes de seguir. **Status: as 7 fases estão concluídas** (depois delas vieram as abas Queue/Applied e os modos de geração).
 
 1. **Scaffold + Base CV + template.** Projeto TS, `jobpipe doctor`. Extrair o conteúdo de `cv/original.pdf` para `cv/base.yaml` (eu reviso). Template Handlebars/CSS + render; passar na regressão visual.
 2. **Banco + tailoring manual.** Wrapper `src/llm.ts` do `claude -p` (com log de uso e cota). SQLite + drizzle com `postings`, `jobs` e status. `jobpipe add <arquivo.txt>` → tailoring → guard (com Tech Lexicon inicial) → PDF + cover letter. Log de uso. (Já resolve meu uso atual.)
