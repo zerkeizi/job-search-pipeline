@@ -70,6 +70,19 @@ export function App() {
   );
 }
 
+// Applied jobs are grouped by the local day I applied, to see how many I sent each day.
+const dayOf = (j: JobSummary) => (j.appliedAt ? new Date(j.appliedAt).toLocaleDateString("en-CA") : "unknown");
+const timeOf = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+function dayLabel(day: string): string {
+  if (day === "unknown") return "Unknown date";
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (day === today.toLocaleDateString("en-CA")) return "Today";
+  if (day === yesterday.toLocaleDateString("en-CA")) return "Yesterday";
+  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
+  return new Date(y, m - 1, d).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
 function Generated({ view, onCount }: { view: "review" | "applied"; onCount: (n: number) => void }) {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -107,23 +120,31 @@ function Generated({ view, onCount }: { view: "review" | "applied"; onCount: (n:
           ) : (
             <p className="muted pad">Nothing to review. Run <code>pnpm jobpipe run</code>.</p>
           ))}
-        {visible.map((j) => (
-          <button key={j.id} className={`item ${selected === j.id ? "selected" : ""}`} onClick={() => setSelected(j.id)}>
-            <div className="item-top">
-              <strong>{j.company}</strong>
-              <span className="score">{view === "applied" && j.appliedAt ? j.appliedAt.slice(0, 10) : (j.score ?? "manual")}</span>
-            </div>
-            <div className="item-title">{j.title}</div>
-            <div className="badges">
-              {j.preferred && <span className="badge good">Preferred</span>}
-              {j.status === "blocked" && <span className="badge bad">Blocked</span>}
-              {j.pageWarning && <span className="badge warn">&gt; 1 page</span>}
-              <span className="badge">{j.workplace}</span>
-              {j.sources.map((s) => (
-                <span key={s} className="badge subtle">{s}</span>
-              ))}
-            </div>
-          </button>
+        {visible.map((j, i) => (
+          <div key={j.id}>
+            {view === "applied" && dayOf(j) !== (i > 0 ? dayOf(visible[i - 1]!) : null) && (
+              <div className="divider day">
+                <span>{dayLabel(dayOf(j))}</span>
+                <span>{visible.filter((x) => dayOf(x) === dayOf(j)).length} applied</span>
+              </div>
+            )}
+            <button className={`item ${selected === j.id ? "selected" : ""}`} onClick={() => setSelected(j.id)}>
+              <div className="item-top">
+                <strong>{j.company}</strong>
+                <span className="score">{view === "applied" && j.appliedAt ? timeOf(j.appliedAt) : (j.score ?? "manual")}</span>
+              </div>
+              <div className="item-title">{j.title}</div>
+              <div className="badges">
+                {j.preferred && <span className="badge good">Preferred</span>}
+                {j.status === "blocked" && <span className="badge bad">Blocked</span>}
+                {j.pageWarning && <span className="badge warn">&gt; 1 page</span>}
+                <span className="badge">{j.workplace}</span>
+                {j.sources.map((s) => (
+                  <span key={s} className="badge subtle">{s}</span>
+                ))}
+              </div>
+            </button>
+          </div>
         ))}
       </aside>
       <section className="detail">

@@ -115,6 +115,17 @@ describe("review panel", () => {
     expect(native).toEqual([]);
   }, 60_000);
 
+  it("groups applied jobs by the day I applied, with a count", async () => {
+    const page = await browser.newPage();
+    const generated = (await (await page.request.get(`${base}/api/jobs`)).json()) as { id: string }[];
+    for (const j of generated) await page.request.post(`${base}/api/jobs/${j.id}/applied`, { headers: { "x-jobpipe": "1" } });
+    await page.goto(base);
+    await page.getByRole("button", { name: /^Applied/ }).click();
+    const day = page.locator(".divider.day").first();
+    await day.waitFor();
+    expect((await day.innerText()).replace(/\s+/g, " ")).toBe(`Today ${generated.length} applied`);
+  }, 60_000);
+
   it("does not keep calling the API while idle on any tab", async () => {
     const page = await browser.newPage();
     const calls: string[] = [];
