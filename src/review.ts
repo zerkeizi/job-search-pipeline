@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Config } from "./config.js";
 import type { BaseCv } from "./cv/schema.js";
@@ -48,6 +48,20 @@ const descriptionOf = (db: Db, job: Job) =>
   (job.descriptionPostingId
     ? db.select({ d: postings.description }).from(postings).where(eq(postings.id, job.descriptionPostingId)).get()?.d
     : undefined) ?? "";
+
+/**
+ * Where a Job's files are, to find them when uploading: the folder, the PDF name, and under WSL
+ * the same folder as Windows sees it (paste it into Explorer or a browser's upload dialog).
+ */
+export function outputInfo(outputDir: string, jobId: string, distro: string | null | undefined = process.env.WSL_DISTRO_NAME) {
+  const dir = resolve(outputDir, jobId);
+  const pdf = pdfPathOf(outputDir, jobId);
+  return {
+    dir,
+    windowsDir: distro ? `\\\\wsl.localhost\\${distro}${dir.replaceAll("/", "\\")}` : null,
+    pdfName: pdf ? basename(pdf) : null,
+  };
+}
 
 export function pdfPathOf(outputDir: string, jobId: string): string | null {
   const dir = join(outputDir, jobId);
@@ -114,6 +128,7 @@ export function jobDetail(deps: ReviewDeps, id: string) {
     parts: partsOf(analysis),
     coverLetter: existsSync(coverPath) ? readFileSync(coverPath, "utf8") : (analysis?.cover_letter ?? ""),
     hasPdf: pdfPathOf(deps.outputDir, id) !== null,
+    output: outputInfo(deps.outputDir, id),
     base: { summary: deps.cv.summary, experience: deps.cv.experience.map((e) => ({ company: e.company, role: e.role, bullets: e.bullets })) },
   };
 }

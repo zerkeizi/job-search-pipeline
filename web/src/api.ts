@@ -45,6 +45,8 @@ export interface JobDetail extends JobSummary {
   analysis: Analysis | null;
   coverLetter: string;
   hasPdf: boolean;
+  /** The Job's folder in output/, as Linux and (under WSL) Windows see it, and the PDF's name. */
+  output: { dir: string; windowsDir: string | null; pdfName: string | null };
   parts: { cv: boolean; coverLetter: boolean };
   base: { summary: string; experience: { company: string; role: string; bullets: string[] }[] };
 }

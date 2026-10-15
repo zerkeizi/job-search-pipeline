@@ -10,6 +10,7 @@ import { openDb } from "../src/db/index.js";
 import { jobs, postings } from "../src/db/schema.js";
 import { ingest, type PostingIn } from "../src/ingest.js";
 import type { ClaudeRunner } from "../src/llm.js";
+import { outputInfo } from "../src/review.js";
 import { createApp } from "../src/server.js";
 import type { TailoringOutput } from "../src/tailoring.js";
 import { TechMatcher } from "../src/tech.js";
@@ -70,6 +71,17 @@ function setup() {
 
 const editsFrom = (t: TailoringOutput) => ({ summary: t.summary, bullets: t.experience.map((e) => e.bullets), coverLetter: t.cover_letter });
 
+describe("output folder", () => {
+  it("shows the Windows path of the folder under WSL", () => {
+    expect(outputInfo("/home/me/jobs/output", "abc123", "Debian")).toEqual({
+      dir: "/home/me/jobs/output/abc123",
+      windowsDir: "\\\\wsl.localhost\\Debian\\home\\me\\jobs\\output\\abc123",
+      pdfName: null,
+    });
+    expect(outputInfo("/home/me/jobs/output", "abc123", null).windowsDir).toBeNull();
+  });
+});
+
 describe("review API", () => {
   it("lists generated Jobs with Preferred Jobs first", async () => {
     const { generated, app } = setup();
@@ -117,6 +129,12 @@ describe("review API", () => {
     expect(job(id)).toMatchObject({ status: "generated", guardErrors: null, pageWarning: false });
     const pdf = await app.request(`/api/jobs/${id}/cv.pdf`);
     expect(pdf.headers.get("content-type")).toBe("application/pdf");
+    expect(pdf.headers.get("content-disposition")).toBeNull();
+    const download = await app.request(`/api/jobs/${id}/cv.pdf?download=1`);
+    expect(download.headers.get("content-disposition")).toMatch(/attachment; filename="Nicolas_Villanova_CV_Acme_\w+\.pdf"/);
+    const detail = (await (await app.request(`/api/jobs/${id}`)).json()) as { output: { dir: string; pdfName: string } };
+    expect(detail.output.dir).toBe(join(outputDir, id));
+    expect(detail.output.pdfName).toMatch(/^Nicolas_Villanova_CV_.*\.pdf$/);
   }, 60_000);
 
   it("edits only the cover letter of a cover-letter-only job, with no PDF", async () => {

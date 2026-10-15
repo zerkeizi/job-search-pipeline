@@ -215,6 +215,10 @@ export function JobView({ id, readOnly, onChanged }: { id: string; readOnly: boo
             </>
           )}
 
+          {(job.hasPdf || job.parts.coverLetter) && (
+            <Files job={job} onCopied={(what) => setMessage({ kind: "good", text: `${what} copied.` })} pdfVersion={pdfVersion} />
+          )}
+
           <fieldset className="plain" disabled={readOnly}>
             {!job.parts.cv && <p className="muted">No tailored CV for this job — use Generate → CV only if you need one.</p>}
             {job.parts.cv && job.hasPdf && (
@@ -350,6 +354,41 @@ export function Facts({ job, onChange }: { job: JobDetail; onChange: (v: boolean
           </a>
         ))}
       </span>
+    </div>
+  );
+}
+
+/** Where this Job's files are: copy the folder path for the upload dialog, or download the PDF. */
+function Files({ job, onCopied, pdfVersion }: { job: JobDetail; onCopied: (what: string) => void; pdfVersion: number }) {
+  const folder = job.output.windowsDir ?? job.output.dir;
+  const copy = async (text: string, what: string) => {
+    await navigator.clipboard.writeText(text);
+    onCopied(what);
+  };
+  return (
+    <div className="files">
+      <h3>Files</h3>
+      <div className="row wrap files-row">
+        <span className="muted small">Folder</span>
+        <code className="path" title={job.output.dir}>
+          {folder}
+        </code>
+        <button className="ghost-small" onClick={() => void copy(folder, "Folder path")}>
+          Copy path
+        </button>
+      </div>
+      {job.output.pdfName && (
+        <div className="row wrap files-row">
+          <span className="muted small">CV</span>
+          <code className="path">{job.output.pdfName}</code>
+          <button className="ghost-small" onClick={() => void copy(`${folder}${job.output.windowsDir ? "\\" : "/"}${job.output.pdfName}`, "PDF path")}>
+            Copy path
+          </button>
+          <a className="button-link" href={`/api/jobs/${job.id}/cv.pdf?download=1&v=${pdfVersion}`}>
+            Download
+          </a>
+        </div>
+      )}
     </div>
   );
 }

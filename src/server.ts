@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -92,7 +93,10 @@ export function createApp(deps: ServerDeps): Hono {
   app.get("/api/jobs/:id/cv.pdf", (c) => {
     const path = pdfPathOf(deps.outputDir, c.req.param("id"));
     if (!path) return c.json({ error: "no PDF" }, 404);
-    return c.body(readFileSync(path), 200, { "content-type": "application/pdf", "cache-control": "no-store" });
+    const headers: Record<string, string> = { "content-type": "application/pdf", "cache-control": "no-store" };
+    // ?download=1 saves it under its final name (Nicolas_Villanova_CV_<Company>.pdf).
+    if (c.req.query("download")) headers["content-disposition"] = `attachment; filename="${basename(path).replace(/"/g, "")}"`;
+    return c.body(readFileSync(path), 200, headers);
   });
 
   app.put("/api/jobs/:id/edits", async (c) => c.json(await saveEdits(deps, c.req.param("id"), editsSchema.parse(await c.req.json()))));

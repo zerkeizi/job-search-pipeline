@@ -144,3 +144,11 @@ header .add { margin-left: auto; }
 .dialog-input { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--text); font-size: 14px; }
 .small-dialog select { padding: 6px 8px; font-size: 14px; }
 button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.files { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 2px 12px 10px; margin: 8px 0; }
+.files h3 { margin-top: 10px; }
+.files-row { align-items: center; margin: 4px 0; }
+.files-row > .muted { width: 44px; }
+code.path { font-size: 12px; background: var(--bg); border-radius: 4px; padding: 2px 6px; word-break: break-all; flex: 1; min-width: 0; }
+.ghost-small, a.button-link { font-size: 12px; padding: 2px 8px; }
+a.button-link { border: 1px solid var(--border); border-radius: 6px; text-decoration: none; color: var(--text); background: var(--panel); }
+a.button-link:hover { border-color: var(--accent); }
