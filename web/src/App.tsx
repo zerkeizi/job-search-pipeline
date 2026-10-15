@@ -36,17 +36,17 @@ export function App() {
       <header>
         <h1>Job Pipeline</h1>
         <nav>
-          <button className={tab === "generated" ? "active" : ""} onClick={() => setTab("generated")}>
-            Generated <span className="count">{counts.generated}</span>
+          <button className={tab === "analysis" ? "active" : ""} onClick={() => setTab("analysis")}>
+            Analysis <span className="count">{counts.analysis}</span>
           </button>
           <button className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>
             Queue <span className="count">{counts.queue}</span>
           </button>
+          <button className={tab === "generated" ? "active" : ""} onClick={() => setTab("generated")}>
+            Generated <span className="count">{counts.generated}</span>
+          </button>
           <button className={tab === "applied" ? "active" : ""} onClick={() => setTab("applied")}>
             Applied <span className="count">{counts.applied}</span>
-          </button>
-          <button className={tab === "analysis" ? "active" : ""} onClick={() => setTab("analysis")}>
-            Analysis <span className="count">{counts.analysis}</span>
           </button>
           <button className={tab === "companies" ? "active" : ""} onClick={() => setTab("companies")}>
             Companies
