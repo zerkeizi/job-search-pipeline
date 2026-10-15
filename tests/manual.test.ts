@@ -16,11 +16,12 @@ const collected = (over: Partial<PostingIn> = {}): PostingIn => ({
 describe("manual jobs", () => {
   it("creates a scored Job with the company and title I typed", () => {
     const db = openDb(":memory:");
-    const r = addManualJob(db, { description: "We need React.", company: "Acme Ltda.", title: "Sr. Node.js Developer", workplace: "remote", location: "Remote" });
+    const r = addManualJob(db, { description: "We need React.", company: "Acme Ltda.", title: "Sr. Node.js Developer", workplace: "hybrid", location: "Porto Alegre", officeDays: 2 });
     expect(r).toMatchObject({ created: true, status: "scored" });
     expect(db.select().from(jobs).where(eq(jobs.id, r.jobId)).get()).toMatchObject({
-      company: "Acme Ltda.", companyNorm: "acme", title: "Sr. Node.js Developer", titleNorm: "senior node developer", workplace: "remote",
+      company: "Acme Ltda.", companyNorm: "acme", title: "Sr. Node.js Developer", titleNorm: "senior node developer", workplace: "hybrid", officeDays: 2,
     });
+    expect(db.select().from(postings).where(eq(postings.jobId, r.jobId)).get()!.officeDays).toBe(2);
     expect(addManualJob(db, { description: "  We need React.  " })).toMatchObject({ jobId: r.jobId, created: false, existing: "same_text" });
   });
 
@@ -36,10 +37,10 @@ describe("manual jobs", () => {
     const existing = db.select().from(jobs).get()!;
     db.update(jobs).set({ status: "filtered_out", prefilterReason: "hybrid outside Porto Alegre" }).where(eq(jobs.id, existing.id)).run();
 
-    const r = addManualJob(db, { description: "My pasted text", url: "https://jobs.lever.co/acme/abc-123/apply" });
+    const r = addManualJob(db, { description: "My pasted text", url: "https://jobs.lever.co/acme/abc-123/apply", officeDays: 3 });
     expect(r).toMatchObject({ jobId: existing.id, created: false, existing: "same_link", status: "scored" });
     expect(db.select().from(jobs).all()).toHaveLength(1);
-    expect(db.select().from(jobs).get()!.prefilterReason).toBeNull();
+    expect(db.select().from(jobs).get()).toMatchObject({ prefilterReason: null, officeDays: 3 });
     expect(db.select().from(postings).where(eq(postings.jobId, existing.id)).all().map((p) => p.source).sort()).toEqual(["linkedin", "manual"]);
   });
 

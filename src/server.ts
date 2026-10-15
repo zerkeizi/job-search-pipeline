@@ -58,6 +58,7 @@ const manualSchema = z.object({
   title: z.string().nullish(),
   location: z.string().nullish(),
   workplace: z.enum(WORKPLACES).optional(),
+  officeDays: z.number().int().min(0).max(5).nullish(),
 });
 const modeSchema = z.object({ mode: z.enum(GENERATE_MODES).default("both") });
 

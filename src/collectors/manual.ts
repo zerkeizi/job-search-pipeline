@@ -19,6 +19,8 @@ export interface ManualJobInput {
   title?: string | null;
   location?: string | null;
   workplace?: Workplace;
+  /** Office days per week (0–5). What I type here wins over what the rules or the tailoring read. */
+  officeDays?: number | null;
 }
 
 export interface ManualJobResult {
@@ -67,6 +69,7 @@ export function addManualJob(db: Db, input: ManualJobInput, now = new Date()): M
     title: title ?? UNKNOWN_TITLE,
     location: input.location?.trim() || null,
     workplace: input.workplace ?? "unknown",
+    officeDays: input.officeDays ?? null,
     description,
     collectedAt: at,
   };
@@ -79,6 +82,7 @@ export function addManualJob(db: Db, input: ManualJobInput, now = new Date()): M
       const status = tx.select({ s: jobs.status }).from(jobs).where(eq(jobs.id, jobId)).get()!.s;
       if (REQUEUE.includes(status))
         tx.update(jobs).set({ status: "scored", prefilterReason: null, discardReason: null, lastSeenAt: at }).where(eq(jobs.id, jobId)).run();
+      if (posting.officeDays !== null) tx.update(jobs).set({ officeDays: posting.officeDays }).where(eq(jobs.id, jobId)).run();
     });
     return { jobId, created: false, existing: "same_link", status: statusOf(jobId) };
   }
@@ -94,6 +98,7 @@ export function addManualJob(db: Db, input: ManualJobInput, now = new Date()): M
         companyNorm: company ? normalizeCompany(company) : "",
         titleNorm: title ? normalizeTitle(title) : "",
         workplace: posting.workplace,
+        officeDays: posting.officeDays,
         descriptionPostingId: jobId,
         applyUrl: url,
         firstSeenAt: at,

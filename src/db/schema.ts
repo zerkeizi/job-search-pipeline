@@ -115,6 +115,8 @@ export const postings = sqliteTable(
     title: text("title").notNull(),
     location: text("location"),
     workplace: text("workplace", { enum: WORKPLACES }).notNull().default("unknown"),
+    /** Office days per week, when I typed them in the Add job form (collectors leave it null). */
+    officeDays: integer("office_days"),
     salaryMin: real("salary_min"),
     salaryMax: real("salary_max"),
     salaryCurrency: text("salary_currency"),

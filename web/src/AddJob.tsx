@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { ApiError, api, type ManualJobInput, type Workplace } from "./api.js";
 
-const EMPTY: Required<ManualJobInput> = { title: "", company: "", url: "", location: "", workplace: "unknown", description: "" };
+type Form = Required<Omit<ManualJobInput, "officeDays">> & { officeDays: string };
+const EMPTY: Form = { title: "", company: "", url: "", location: "", workplace: "unknown", officeDays: "", description: "" };
 
 /**
  * "Add job": a job I found myself goes to the Queue (scored for matches and Gaps, no LLM call).
@@ -12,7 +13,7 @@ export function AddJob({ onClose, onAdded }: { onClose: () => void; onAdded: () 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "good" | "bad" | "warn"; text: string } | null>(null);
   const [added, setAdded] = useState(0);
-  const set = (k: keyof ManualJobInput) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
+  const set = (k: keyof Form) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
 
   const save = async (another: boolean) => {
     setBusy(true);
@@ -25,6 +26,7 @@ export function AddJob({ onClose, onAdded }: { onClose: () => void; onAdded: () 
         ...(form.url.trim() ? { url: form.url } : {}),
         ...(form.location.trim() ? { location: form.location } : {}),
         workplace: form.workplace,
+        ...(form.officeDays !== "" ? { officeDays: Number(form.officeDays) } : {}),
       });
       onAdded();
       const name = form.company.trim() || "The job";
@@ -85,6 +87,17 @@ export function AddJob({ onClose, onAdded }: { onClose: () => void; onAdded: () 
               <option value="remote">remote</option>
               <option value="hybrid">hybrid</option>
               <option value="onsite">onsite</option>
+            </select>
+          </label>
+          <label>
+            Office days per week
+            <select value={form.officeDays} onChange={set("officeDays")}>
+              <option value="">not stated</option>
+              {[0, 1, 2, 3, 4, 5].map((n) => (
+                <option key={n} value={String(n)}>
+                  {n}
+                </option>
+              ))}
             </select>
           </label>
           <label className="wide">

@@ -29,6 +29,13 @@
       "when": 1791986848746,
       "tag": "0003_companies",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792037195647,
+      "tag": "0004_posting_office_days",
+      "breakpoints": true
     }
   ]
 }

@@ -99,7 +99,7 @@ pnpm jobpipe generate                # tailor the queue; --limit 3, --only cv | 
 ```
 
 A job I found myself skips the filters and the threshold. In the panel, **+ Add job** (top right)
-takes title, company, link, location, workplace and the description (only the description is
+takes title, company, link, location, workplace, office days per week and the description (only the description is
 required); it goes straight to the top of the **Queue** with its score, matches and Gaps, without
 using quota. **Save and add another** keeps the form open, so I can add jobs for a while and then,
 in the Queue, **Select manual** → **Generate selected** to generate them all at once (one after the

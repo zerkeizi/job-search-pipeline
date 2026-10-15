@@ -237,17 +237,19 @@ describe("review API", () => {
     const { generated, send } = setup();
     generated({}, { status: "scored", score: 95 });
     const res = await send("POST", "/api/jobs/manual", {
-      title: "Full Stack Developer", company: "Hand Picked", description: "We build web products with React, Node and Kafka.", workplace: "remote",
+      title: "Full Stack Developer", company: "Hand Picked", description: "We build web products with React, Node and Kafka.", workplace: "hybrid",
+      location: "Porto Alegre", officeDays: 2,
     });
     expect(res.status).toBe(200);
     const { jobId, created } = (await res.json()) as { jobId: string; created: boolean };
     expect(created).toBe(true);
     const q = (await (await send("GET", "/api/queue")).json()) as { jobs: { id: string; manual: boolean; aboveThreshold: boolean }[] };
-    expect(q.jobs[0]).toMatchObject({ id: jobId, manual: true, aboveThreshold: true });
+    expect(q.jobs[0]).toMatchObject({ id: jobId, manual: true, aboveThreshold: true, officeDays: 2, city: "Porto Alegre", preferred: true });
     const detail = (await (await send("GET", `/api/jobs/${jobId}`)).json()) as { matches: string[]; gaps: string[]; score: number };
     expect(detail.matches).toEqual(expect.arrayContaining(["React", "Node"]));
     expect(detail.gaps).toContain("Kafka");
     expect((await send("POST", "/api/jobs/manual", { description: "  " })).status).toBe(400);
+    expect((await send("POST", "/api/jobs/manual", { description: "x", officeDays: 6 })).status).toBe(400);
   });
 
   it("reports collector status", async () => {

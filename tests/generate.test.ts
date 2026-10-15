@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { addManualJobFromFile as addManualJob } from "../src/collectors/manual.js";
+import { addManualJob as addTypedJob, addManualJobFromFile as addManualJob } from "../src/collectors/manual.js";
 import { loadConfig } from "../src/config.js";
 import { inspectPdf } from "../src/cv/pdf-inspect.js";
 import { loadBaseCv } from "../src/cv/schema.js";
@@ -79,6 +79,23 @@ describe("jobpipe add → generate", () => {
     expect(job.gaps).toContain("Kafka");
     expect(pendingJobIds(db, config, 10)).toEqual([]);
   }, 120_000);
+
+  it("keeps the workplace, city and office days I typed, even if the tailoring reads others", async () => {
+    const db = openDb(":memory:");
+    const { jobId } = addTypedJob(db, {
+      description: "Acme wants React and Node. Remote-friendly, 4 days in the office.",
+      company: "Acme", title: "Full Stack Developer", workplace: "hybrid", location: "Porto Alegre, RS", officeDays: 2,
+    });
+    const deps = { db, config, cv, matcher, outputDir: join(dir, "out"), usage: new UsageLog("generate", join(dir, "logs")) };
+    const letterOnly = {
+      keywords: [], strong_matches: [], gaps: [], cover_letter: tailored().cover_letter,
+      job: { company: "Acme", title: "Full Stack Developer", workplace: "onsite" as const, office_city: "São Paulo", office_days_per_week: 4 },
+    };
+    await generate([jobId], { ...deps, runner: fake("ok", letterOnly as unknown as TailoringOutput) }, "cover_letter");
+    expect(db.select().from(jobs).where(eq(jobs.id, jobId)).get()).toMatchObject({
+      workplace: "hybrid", city: "Porto Alegre", officeDays: 2, localOffice: true,
+    });
+  }, 60_000);
 
   it("writes only the cover letter, then adds the CV later without touching the letter", async () => {
     const { db, jobId, deps } = setup("Acme (Gupy) wants React and Node. Remote.");

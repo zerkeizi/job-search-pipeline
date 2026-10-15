@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Config } from "./config.js";
 import type { BaseCv } from "./cv/schema.js";
 import type { Db } from "./db/index.js";
 import { jobs, postings } from "./db/schema.js";
 import { guard, type TailoredContent } from "./guard.js";
 import { type ClaudeRunner, QuotaExhaustedError } from "./llm.js";
+import { cityFromLocation } from "./location.js";
 import { normalizeCompany, normalizeTitle } from "./normalize.js";
 import { fitCvToOnePage, type LineBudget, measureLineBudget } from "./render.js";
 import { refreshLocalOffice, syncCompanies } from "./companies.js";
@@ -145,15 +146,22 @@ export async function generate(jobIds: string[], deps: GenerateDeps, mode: Gener
     // A manual Job may come without company and/or title: the tailoring reads them from the text.
     const company = job.companyNorm !== "" ? job.company : facts.company;
     const title = job.titleNorm !== "" ? job.title : facts.title;
+    // The tailoring corrects what the rules read, but never what I typed in the Add job form.
+    const typed = db
+      .select()
+      .from(postings)
+      .where(and(eq(postings.jobId, jobId), eq(postings.source, "manual")))
+      .get();
+    const typedCity = cityFromLocation(typed?.location);
     db.update(jobs)
       .set({
         company,
         title,
         companyNorm: normalizeCompany(company),
         titleNorm: normalizeTitle(title),
-        workplace: facts.workplace !== "unknown" ? facts.workplace : job.workplace,
-        city: facts.office_city ?? job.city,
-        officeDays: facts.office_days_per_week ?? job.officeDays,
+        workplace: typed && typed.workplace !== "unknown" ? typed.workplace : facts.workplace !== "unknown" ? facts.workplace : job.workplace,
+        city: typedCity ?? facts.office_city ?? job.city,
+        officeDays: typed?.officeDays ?? facts.office_days_per_week ?? job.officeDays,
         matches,
         gaps,
       })

@@ -98,6 +98,7 @@ export interface ManualJobInput {
   title?: string;
   location?: string;
   workplace?: Workplace;
+  officeDays?: number;
 }
 
 export class ApiError extends Error {
